@@ -1,0 +1,68 @@
+name: 라라스윗 빙과 일일 광고 데이터 수집
+
+on:
+  schedule:
+    - cron: '0 23 * * *'  # 매일 08:00 KST (= 전날 23:00 UTC)
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: '시작일 (YYYY-MM-DD, 비우면 어제)'
+        required: false
+        default: ''
+      end_date:
+        description: '종료일 (YYYY-MM-DD, 비우면 어제)'
+        required: false
+        default: ''
+
+jobs:
+  collect-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: pip install requests pandas gspread google-auth PyNaCl
+
+      - name: 메타 데이터 수집
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_AD_ACCOUNT_ID: ${{ secrets.META_AD_ACCOUNT_ID }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_USER_ID: ${{ secrets.SLACK_USER_ID }}
+        run: python scripts/meta_api.py
+
+      - name: 틱톡 데이터 수집
+        env:
+          TIKTOK_ACCESS_TOKEN: ${{ secrets.TIKTOK_ACCESS_TOKEN }}
+          TIKTOK_ADVERTISER_ID: ${{ secrets.TIKTOK_ADVERTISER_ID }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_USER_ID: ${{ secrets.SLACK_USER_ID }}
+        run: python scripts/tiktok_api.py
+
+      - name: 통합 RD 빌드
+        run: python scripts/build_rd.py
+
+      - name: Google Sheets 동기화
+        env:
+          SHEETS_WEBAPP_URL: ${{ secrets.SHEETS_WEBAPP_URL }}
+          SHEETS_SECRET_KEY: ${{ secrets.SHEETS_SECRET_KEY }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+        run: python scripts/sync_to_sheets.py
+
+      - name: 데이터 커밋 & 푸시
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "자동 수집: $(date +'%Y-%m-%d')"
+          git push

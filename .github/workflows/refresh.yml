@@ -1,0 +1,88 @@
+name: 라라스윗 빙과 데이터 새로고침 (대시보드 버튼)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '수집 대상 (yesterday=전일자 강제 재수집, today=실시간/당일)'
+        required: true
+        default: 'yesterday'
+        type: choice
+        options:
+          - yesterday
+          - today
+
+concurrency:
+  group: lalasweet-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+        with:
+          token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: 대상 날짜 계산 (KST)
+        id: target
+        run: |
+          if [ "${{ github.event.inputs.mode }}" = "today" ]; then
+            DATE=$(TZ=Asia/Seoul date +%F)
+          else
+            DATE=$(TZ=Asia/Seoul date -d "yesterday" +%F)
+          fi
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          echo "대상 날짜: $DATE (mode=${{ github.event.inputs.mode }})"
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: pip install requests pandas gspread google-auth
+
+      - name: 기존 raw CSV 삭제
+        run: git rm -f --ignore-unmatch data/meta_raw_*.csv data/tiktok_raw_*.csv || true
+
+      - name: 메타 데이터 수집
+        env:
+          BACKFILL_SINCE: "${{ steps.target.outputs.date }}"
+          BACKFILL_UNTIL: "${{ steps.target.outputs.date }}"
+          META_ACCESS_TOKEN: "${{ secrets.META_ACCESS_TOKEN }}"
+          META_AD_ACCOUNT_ID: "${{ secrets.META_AD_ACCOUNT_ID }}"
+          SLACK_BOT_TOKEN: "${{ secrets.SLACK_BOT_TOKEN }}"
+          SLACK_USER_ID: "${{ secrets.SLACK_USER_ID }}"
+        run: python scripts/meta_api.py
+
+      - name: 틱톡 데이터 수집
+        env:
+          BACKFILL_SINCE: "${{ steps.target.outputs.date }}"
+          BACKFILL_UNTIL: "${{ steps.target.outputs.date }}"
+          TIKTOK_ACCESS_TOKEN: "${{ secrets.TIKTOK_ACCESS_TOKEN }}"
+          TIKTOK_ADVERTISER_ID: "${{ secrets.TIKTOK_ADVERTISER_ID }}"
+          SLACK_BOT_TOKEN: "${{ secrets.SLACK_BOT_TOKEN }}"
+          SLACK_USER_ID: "${{ secrets.SLACK_USER_ID }}"
+        run: python scripts/tiktok_api.py
+
+      - name: 통합 RD 빌드
+        env:
+          BACKFILL_SINCE: "${{ steps.target.outputs.date }}"
+          BACKFILL_UNTIL: "${{ steps.target.outputs.date }}"
+        run: python scripts/build_rd.py
+
+      - name: Google Sheets 동기화
+        env:
+          SPREADSHEET_ID: "${{ secrets.SPREADSHEET_ID }}"
+          GCP_SERVICE_ACCOUNT_JSON: "${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}"
+        run: python scripts/sync_to_sheets.py
+
+      - name: 데이터 커밋 & 푸시
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "새로고침(${{ github.event.inputs.mode }}): ${{ steps.target.outputs.date }}"
+          git push
