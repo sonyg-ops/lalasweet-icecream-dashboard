@@ -11,10 +11,16 @@ TikTok 광고 데이터 수집 (빙과본부 대시보드 전용, GitHub Actions
 import os, sys, time, json, datetime, csv
 import requests
 
-ACCESS_TOKEN    = os.environ["TIKTOK_ACCESS_TOKEN"]
-ADVERTISER_ID   = os.environ["TIKTOK_ADVERTISER_ID"]
+ACCESS_TOKEN    = os.environ.get("TIKTOK_ACCESS_TOKEN", "").strip()
+ADVERTISER_ID   = os.environ.get("TIKTOK_ADVERTISER_ID", "").strip()
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
 SLACK_USER_ID   = os.environ.get("SLACK_USER_ID", "")
+
+# TikTok 자격증명이 없으면 틱톡 수집을 건너뛴다 (Meta만으로도 대시보드 동작).
+# 나중에 TIKTOK_ACCESS_TOKEN / TIKTOK_ADVERTISER_ID 시크릿을 추가하면 자동으로 수집 시작.
+if not ACCESS_TOKEN or not ADVERTISER_ID:
+    print("TikTok 자격증명(TIKTOK_ACCESS_TOKEN/ADVERTISER_ID) 없음 -> 틱톡 수집 건너뜀")
+    sys.exit(0)
 
 BASE     = "https://business-api.tiktok.com/open_api/v1.3"
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
