@@ -212,6 +212,32 @@ def render_pinned_total_table(df: pd.DataFrame) -> None:
     )
     height = max(150, 52 + len(data) * 34 + (38 if not total.empty else 0)) + 42
     components.html(html, height=height, scrolling=False)
+def _page_more(sk: str, page_size: int) -> None:
+    st.session_state[sk] = st.session_state.get(sk, page_size) + page_size
+def _page_less(sk: str, page_size: int) -> None:
+    st.session_state[sk] = page_size
+def render_table_paged(df: pd.DataFrame, key: str, page_size: int = 10) -> None:
+    """상위 page_size개(+총합계)만 보여주고 '더보기'로 10개씩 펼침.
+    총합계 행은 펼침과 무관하게 항상 전체 기준으로 표시."""
+    first_col = df.columns[0]
+    data  = df[df[first_col] != "총합계"].reset_index(drop=True)
+    total = df[df[first_col] == "총합계"]
+    n = len(data)
+    if n <= page_size:
+        render_pinned_total_table(df)
+        return
+    sk = f"shown_{key}"
+    shown = min(st.session_state.get(sk, page_size), n)
+    view = pd.concat([data.head(shown), total], ignore_index=True)
+    render_pinned_total_table(view)
+    remaining = n - shown
+    c1, c2, c3 = st.columns([1.6, 1.2, 5], vertical_alignment="center")
+    if remaining > 0:
+        c1.button(f"더보기 (+{min(page_size, remaining)})", key=f"more_{key}",
+                  on_click=_page_more, args=(sk, page_size))
+    if shown > page_size:
+        c2.button("접기", key=f"less_{key}", on_click=_page_less, args=(sk, page_size))
+    c3.caption(f"상위 {shown} / 전체 {n}개 표시")
 def build_summary_table(data: pd.DataFrame, group_col: str, label_fn=None) -> pd.DataFrame:
     grp = (
         data.groupby(group_col)
@@ -796,12 +822,12 @@ with tab2:
         adset_tbl = sort_summary_by_spend(build_summary_table(fdf, "광고그룹명"), "광고그룹명")
         adset_tbl = adset_tbl.rename(columns={"광고그룹명": "광고세트"})
         st.markdown("**🗂 광고세트별 성과**")
-        render_pinned_total_table(style_summary(adset_tbl, "광고세트"))
+        render_table_paged(style_summary(adset_tbl, "광고세트"), "adset")
         # 소재별
         creative_tbl = sort_summary_by_spend(build_summary_table(fdf, "소재명"), "소재명")
         creative_tbl = creative_tbl.rename(columns={"소재명": "소재"})
         st.markdown("**🖼 소재별 성과**")
-        render_pinned_total_table(style_summary(creative_tbl, "소재"))
+        render_table_paged(style_summary(creative_tbl, "소재"), "creative")
     # --- 포맷·연출별 성과 (대분류 포맷/소분류 연출 필터 선택 시에만 표시) ---
     if sel_format or sel_deroul:
         st.markdown("---")
@@ -814,7 +840,7 @@ with tab2:
                                     "None": "(미지정)", "<NA>": "(미지정)"}))
         fmt_tbl = sort_summary_by_spend(build_summary_table(fdf_fd, "대분류 포맷"), "대분류 포맷")
         st.markdown("**🧩 대분류 포맷별 성과**")
-        render_pinned_total_table(style_summary(fmt_tbl, "대분류 포맷"))
+        render_table_paged(style_summary(fmt_tbl, "대분류 포맷"), "fmt")
         der_tbl = sort_summary_by_spend(build_summary_table(fdf_fd, "소분류 연출"), "소분류 연출")
         st.markdown("**🎭 소분류 연출별 성과**")
-        render_pinned_total_table(style_summary(der_tbl, "소분류 연출"))
+        render_table_paged(style_summary(der_tbl, "소분류 연출"), "der")
