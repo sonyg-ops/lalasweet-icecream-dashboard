@@ -269,6 +269,14 @@ def sort_summary_by_spend(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
     total = df[df[group_col] == "총합계"]
     data  = df[df[group_col] != "총합계"].sort_values("광고비", ascending=False)
     return pd.concat([data, total], ignore_index=True)
+def filter_min_spend(df: pd.DataFrame, min_spend: float) -> pd.DataFrame:
+    """합계 광고비가 min_spend 미만인 항목 행을 제거. 총합계 행은 전체 기준으로 유지.
+    (숫자 광고비 컬럼 기준이므로 style_summary 전에 호출해야 함.)"""
+    if not min_spend or min_spend <= 0:
+        return df
+    fc = df.columns[0]
+    keep = (df[fc] == "총합계") | (df["광고비"] >= min_spend)
+    return df[keep].reset_index(drop=True)
 def style_summary(df: pd.DataFrame, first_col: str) -> pd.DataFrame:
     s = df.copy()
     s["광고비"]   = s["광고비"].apply(lambda x: f"₩{int(x):,}")
@@ -638,6 +646,14 @@ with st.sidebar:
     sel_prodcode = st.multiselect("제품코드", prodcode_opts, placeholder="전체",
                                   key="f_prodcode", label_visibility="collapsed")
     st.markdown("---")
+    st.markdown("**🎨 포맷 · 연출**")
+    st.markdown("**🧩 대분류 포맷**")
+    sel_format = st.multiselect("대분류 포맷", valid_opts(df, "대분류 포맷"),
+                                placeholder="전체", label_visibility="collapsed")
+    st.markdown("**🎭 소분류 연출**")
+    sel_deroul = st.multiselect("소분류 연출", valid_opts(df, "소분류 연출"),
+                                placeholder="전체", label_visibility="collapsed")
+    st.markdown("---")
     st.markdown("**🅜 Meta 구조**")
     st.caption("↓ 캠페인부터 고르면 아래 목록이 좁혀져요")
     # 캠페인
@@ -664,13 +680,10 @@ with st.sidebar:
     sel_creative = st.multiselect("소재", creative_opts, placeholder="전체",
                                   key="f_creative", label_visibility="collapsed")
     st.markdown("---")
-    st.markdown("**🎨 포맷 · 연출**")
-    st.markdown("**🧩 대분류 포맷**")
-    sel_format = st.multiselect("대분류 포맷", valid_opts(df, "대분류 포맷"),
-                                placeholder="전체", label_visibility="collapsed")
-    st.markdown("**🎭 소분류 연출**")
-    sel_deroul = st.multiselect("소분류 연출", valid_opts(df, "소분류 연출"),
-                                placeholder="전체", label_visibility="collapsed")
+    st.markdown("**💰 광고비 최소금액**")
+    st.caption("분류별 성과 표에서 합계 광고비가 이 금액 미만인 항목을 숨깁니다 (0 = 전체 표시)")
+    min_spend = st.number_input("광고비 최소금액", min_value=0, value=0, step=10000,
+                                format="%d", label_visibility="collapsed")
     st.markdown("---")
     if st.button("🔄 데이터 새로고침"):
         st.cache_data.clear()
@@ -814,23 +827,8 @@ with tab2:
         st.info("좌측 사이드바에서 **Meta 구조**(캠페인·광고세트·소재) 또는 "
                 "**포맷·연출**(대분류 포맷·소분류 연출) 필터를 선택하면 "
                 "여기에 분류별 성과 표가 나타납니다.")
-    # --- Meta 구조별 성과 (캠페인/광고세트/소재 필터 선택 시에만 표시) ---
-    if sel_campaign or sel_adset or sel_creative:
-        st.markdown("**🅜 Meta 구조별 성과**")
-        st.caption("좌측 Meta 구조 필터로 좁힌 범위 기준입니다")
-        # 광고세트별
-        adset_tbl = sort_summary_by_spend(build_summary_table(fdf, "광고그룹명"), "광고그룹명")
-        adset_tbl = adset_tbl.rename(columns={"광고그룹명": "광고세트"})
-        st.markdown("**🗂 광고세트별 성과**")
-        render_table_paged(style_summary(adset_tbl, "광고세트"), "adset")
-        # 소재별
-        creative_tbl = sort_summary_by_spend(build_summary_table(fdf, "소재명"), "소재명")
-        creative_tbl = creative_tbl.rename(columns={"소재명": "소재"})
-        st.markdown("**🖼 소재별 성과**")
-        render_table_paged(style_summary(creative_tbl, "소재"), "creative")
     # --- 포맷·연출별 성과 (대분류 포맷/소분류 연출 필터 선택 시에만 표시) ---
     if sel_format or sel_deroul:
-        st.markdown("---")
         st.markdown("**🎨 포맷·연출별 성과**")
         st.caption("좌측 포맷·연출 필터로 좁힌 범위 기준입니다")
         fdf_fd = fdf.copy()
@@ -838,9 +836,29 @@ with tab2:
             fdf_fd[_c] = (fdf_fd[_c].fillna("(미지정)").astype(str).str.strip()
                           .replace({"": "(미지정)", "nan": "(미지정)",
                                     "None": "(미지정)", "<NA>": "(미지정)"}))
-        fmt_tbl = sort_summary_by_spend(build_summary_table(fdf_fd, "대분류 포맷"), "대분류 포맷")
+        fmt_tbl = filter_min_spend(
+            sort_summary_by_spend(build_summary_table(fdf_fd, "대분류 포맷"), "대분류 포맷"), min_spend)
         st.markdown("**🧩 대분류 포맷별 성과**")
         render_table_paged(style_summary(fmt_tbl, "대분류 포맷"), "fmt")
-        der_tbl = sort_summary_by_spend(build_summary_table(fdf_fd, "소분류 연출"), "소분류 연출")
+        der_tbl = filter_min_spend(
+            sort_summary_by_spend(build_summary_table(fdf_fd, "소분류 연출"), "소분류 연출"), min_spend)
         st.markdown("**🎭 소분류 연출별 성과**")
         render_table_paged(style_summary(der_tbl, "소분류 연출"), "der")
+    # --- Meta 구조별 성과 (캠페인/광고세트/소재 필터 선택 시에만 표시) ---
+    if sel_campaign or sel_adset or sel_creative:
+        if sel_format or sel_deroul:
+            st.markdown("---")
+        st.markdown("**🅜 Meta 구조별 성과**")
+        st.caption("좌측 Meta 구조 필터로 좁힌 범위 기준입니다")
+        # 광고세트별
+        adset_tbl = filter_min_spend(
+            sort_summary_by_spend(build_summary_table(fdf, "광고그룹명"), "광고그룹명"), min_spend)
+        adset_tbl = adset_tbl.rename(columns={"광고그룹명": "광고세트"})
+        st.markdown("**🗂 광고세트별 성과**")
+        render_table_paged(style_summary(adset_tbl, "광고세트"), "adset")
+        # 소재별
+        creative_tbl = filter_min_spend(
+            sort_summary_by_spend(build_summary_table(fdf, "소재명"), "소재명"), min_spend)
+        creative_tbl = creative_tbl.rename(columns={"소재명": "소재"})
+        st.markdown("**🖼 소재별 성과**")
+        render_table_paged(style_summary(creative_tbl, "소재"), "creative")
