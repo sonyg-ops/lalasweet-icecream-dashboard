@@ -170,7 +170,9 @@ def style_summary(df: pd.DataFrame, first_col: str) -> pd.DataFrame:
     s["CPC"]     = s["CPC"].apply(lambda x: f"{int(x):,}")
     s["CVR"]     = s["CVR"].apply(lambda x: f"{x:.2f}%")
     s["CPA"]     = s["CPA"].apply(lambda x: f"{int(x):,}")
-    return s.rename(columns={"링크클릭": "링크 클릭"})
+    s = s.rename(columns={"링크클릭": "링크 클릭"})
+    order = [first_col, "광고비", "CPA", "CPC", "CVR", "CTR", "노출", "링크 클릭", "구매"]
+    return s[[c for c in order if c in s.columns]]
 def perf_row(label: str, d: pd.DataFrame, key_col: str = "구분") -> dict:
     s = d["광고비 (KRW)"].sum()
     i = d["노출"].sum()
@@ -222,7 +224,9 @@ def daily_table(d: pd.DataFrame) -> pd.DataFrame:
         "CVR":      f"{tv/tc*100:.2f}%" if tc > 0 else "0.00%",
         "CPA":      f"{int(ts/tv):,}" if tv > 0 else "0",
     }])
-    return pd.concat([tbl, total], ignore_index=True)
+    out = pd.concat([tbl, total], ignore_index=True)
+    order = ["일", "광고비", "CPA", "CPC", "CVR", "CTR", "노출", "링크 클릭", "구매"]
+    return out[order]
 def valid_opts(df: pd.DataFrame, col: str) -> list:
     grp = df.groupby(col)["노출"].sum()
     return sorted([str(v) for v, imp in grp.items()
