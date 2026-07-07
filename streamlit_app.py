@@ -73,29 +73,46 @@ CREATIVE_TYPES = [
 # =============================================================
 def _esc(v) -> str:
     return _html.escape(str(v))
+COL_WIDTHS = {
+    "광고비": 120, "CPA": 100, "CPC": 95, "CVR": 80, "CTR": 80,
+    "노출": 115, "링크 클릭": 95, "구매": 85,
+}
+def _col_width(i: int, name) -> int:
+    if i == 0:
+        return 190            # 첫 열(소재명 등)은 넓게 — 길면 말줄임 표시
+    return COL_WIDTHS.get(str(name), 95)
 def render_pinned_total_table(df: pd.DataFrame) -> None:
     tid = "tbl_" + uuid.uuid4().hex[:8]
     first_col = df.columns[0]
     data  = df[df[first_col] != "총합계"].reset_index(drop=True)
     total = df[df[first_col] == "총합계"]
-    th = ("padding:7px 10px; text-align:left; background:#f0f2f6;"
-          "border-bottom:2px solid #ddd; font-size:0.82rem;"
+    th = ("position:relative; padding:0; text-align:left; background:#f0f2f6;"
+          "border-bottom:2px solid #ddd; font-size:0.82rem; overflow:hidden;")
+    hd = ("padding:7px 10px; overflow:hidden; text-overflow:ellipsis;"
           "white-space:nowrap; cursor:pointer; user-select:none;")
-    td = "padding:6px 10px; border-bottom:1px solid #eee; font-size:0.82rem; white-space:nowrap;"
+    rz = "position:absolute; top:0; right:0; width:6px; height:100%; cursor:col-resize;"
+    td = ("padding:6px 10px; border-bottom:1px solid #eee; font-size:0.82rem;"
+          "white-space:nowrap; overflow:hidden; text-overflow:ellipsis;")
     tf = (f"padding:6px 10px; font-size:0.82rem; white-space:nowrap;"
+          f"overflow:hidden; text-overflow:ellipsis;"
           f"background:{TOTAL_BG}; color:{TOTAL_FG}; font-weight:{TOTAL_FONT};"
           f"border-top:2px solid #ddd;")
+    widths  = [_col_width(i, c) for i, c in enumerate(df.columns)]
+    total_w = sum(widths)
+    colgroup = "<colgroup>" + "".join(f'<col style="width:{w}px">' for w in widths) + "</colgroup>"
     hdr = "".join(
-        f'<th style="{th}" onclick="sortTbl(\'{tid}\',{i})" data-order="">'
-        f'{_esc(col)} <span style="color:#bbb;font-size:0.7rem">&#x21C5;</span></th>'
+        f'<th data-order="" data-name="{_esc(col)}" style="{th}">'
+        f'<div style="{hd}" onclick="sortTbl(\'{tid}\',{i})">'
+        f'{_esc(col)} <span style="color:#bbb;font-size:0.7rem">&#x21C5;</span></div>'
+        f'<div style="{rz}" data-col="{i}" class="rz"></div></th>'
         for i, col in enumerate(df.columns)
     )
     bdy = "".join(
-        "<tr>" + "".join(f'<td style="{td}">{_esc(v)}</td>' for v in row) + "</tr>"
+        "<tr>" + "".join(f'<td title="{_esc(v)}" style="{td}">{_esc(v)}</td>' for v in row) + "</tr>"
         for _, row in data.iterrows()
     )
     ftr = ("".join(
-        "<tr>" + "".join(f'<td style="{tf}">{_esc(v)}</td>' for v in row) + "</tr>"
+        "<tr>" + "".join(f'<td title="{_esc(v)}" style="{tf}">{_esc(v)}</td>' for v in row) + "</tr>"
         for _, row in total.iterrows()
     ) if not total.empty else "")
     js = (
@@ -117,17 +134,59 @@ def render_pinned_total_table(df: pd.DataFrame) -> None:
         "});"
         "rows.forEach(function(r){tbody.appendChild(r);});"
         "}"
+        # 열 너비 드래그 조절
+        "function initRz(tid){"
+        "var t=document.getElementById(tid);"
+        "var cols=t.querySelectorAll('colgroup col');"
+        "var cur=-1,sx=0,sw=0,stw=0;"
+        "function mv(e){if(cur<0)return;"
+        "var w=Math.max(40,sw+(e.pageX-sx));"
+        "cols[cur].style.width=w+'px';t.style.width=(stw-sw+w)+'px';}"
+        "function up(){cur=-1;document.body.style.userSelect='';"
+        "document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);}"
+        "t.querySelectorAll('th .rz').forEach(function(h){"
+        "h.addEventListener('mousedown',function(e){e.preventDefault();e.stopPropagation();"
+        "cur=parseInt(h.getAttribute('data-col'));sx=e.pageX;"
+        "sw=parseInt(cols[cur].style.width);stw=parseInt(t.style.width);"
+        "document.body.style.userSelect='none';"
+        "document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);});});"
+        "}"
+        # 표 전체를 TSV로 클립보드 복사 (엑셀/시트에 붙여넣기)
+        "function copyTbl(tid){"
+        "var t=document.getElementById(tid);var L=[];var H=[];"
+        "t.querySelectorAll('thead th').forEach(function(th){H.push((th.getAttribute('data-name')||'').trim());});"
+        "L.push(H.join('\\t'));"
+        "t.querySelectorAll('tbody tr').forEach(function(tr){var c=[];"
+        "tr.querySelectorAll('td').forEach(function(td){c.push(td.textContent.trim());});L.push(c.join('\\t'));});"
+        "t.querySelectorAll('tfoot tr').forEach(function(tr){var c=[];"
+        "tr.querySelectorAll('td').forEach(function(td){c.push(td.textContent.trim());});L.push(c.join('\\t'));});"
+        "var tsv=L.join('\\n');"
+        "var ta=document.createElement('textarea');ta.value=tsv;"
+        "ta.style.position='fixed';ta.style.top='-1000px';ta.style.opacity='0';"
+        "document.body.appendChild(ta);ta.focus();ta.select();"
+        "var ok=false;try{ok=document.execCommand('copy');}catch(e){}"
+        "document.body.removeChild(ta);"
+        "var b=document.getElementById(tid+'_cpy');var o=b.innerHTML;"
+        "b.innerHTML=ok?'✅ 복사됨':'⚠ 복사 실패';"
+        "setTimeout(function(){b.innerHTML=o;},1500);"
+        "}"
     )
+    btn_style = ("font-size:0.72rem; padding:3px 10px; border:1px solid #d0d0d0;"
+                 "border-radius:6px; background:#fff; color:#555; cursor:pointer;")
     html = (
+        f'<div style="display:flex; justify-content:flex-end; margin-bottom:6px;">'
+        f'<button id="{tid}_cpy" onclick="copyTbl(\'{tid}\')" style="{btn_style}" '
+        f'title="표 전체를 복사해 엑셀·구글시트에 붙여넣을 수 있어요">&#128203; 복사</button></div>'
         '<div style="overflow-x:auto; border-radius:8px; border:1px solid #e0e0e0;">'
-        f'<table id="{tid}" style="width:100%; border-collapse:collapse;">'
+        f'<table id="{tid}" style="table-layout:fixed; width:{total_w}px; border-collapse:collapse;">'
+        f'{colgroup}'
         f'<thead><tr>{hdr}</tr></thead>'
         f'<tbody>{bdy}</tbody>'
         f'<tfoot>{ftr}</tfoot>'
         f'</table></div>'
-        f'<script>{js}</script>'
+        f'<script>{js} initRz("{tid}");</script>'
     )
-    height = max(150, 52 + len(data) * 34 + (38 if not total.empty else 0))
+    height = max(150, 52 + len(data) * 34 + (38 if not total.empty else 0)) + 42
     components.html(html, height=height, scrolling=False)
 def build_summary_table(data: pd.DataFrame, group_col: str, label_fn=None) -> pd.DataFrame:
     grp = (
