@@ -155,6 +155,11 @@ def build_summary_table(data: pd.DataFrame, group_col: str, label_fn=None) -> pd
     if label_fn:
         grp[group_col] = grp[group_col].apply(lambda x: label_fn(x) if x != "총합계" else x)
     return grp
+def sort_summary_by_spend(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
+    """총합계 행은 맨 아래에 유지하고, 나머지는 광고비 큰 순으로 정렬."""
+    total = df[df[group_col] == "총합계"]
+    data  = df[df[group_col] != "총합계"].sort_values("광고비", ascending=False)
+    return pd.concat([data, total], ignore_index=True)
 def style_summary(df: pd.DataFrame, first_col: str) -> pd.DataFrame:
     s = df.copy()
     s["광고비"]   = s["광고비"].apply(lambda x: f"₩{int(x):,}")
@@ -514,6 +519,32 @@ with st.sidebar:
     sel_event = st.multiselect("이벤트명", valid_opts(df, "스킴명"),
                                placeholder="전체", label_visibility="collapsed")
     st.markdown("---")
+    st.markdown("**🅜 Meta 구조**")
+    st.caption("↓ 캠페인부터 고르면 아래 목록이 좁혀져요")
+    # 캠페인
+    st.markdown("**📢 캠페인**")
+    camp_opts = valid_opts(df, "캠페인명")
+    if "f_campaign" in st.session_state:
+        st.session_state["f_campaign"] = [x for x in st.session_state["f_campaign"] if x in camp_opts]
+    sel_campaign = st.multiselect("캠페인", camp_opts, placeholder="전체",
+                                  key="f_campaign", label_visibility="collapsed")
+    # 광고세트 (선택 캠페인으로 좁힘)
+    st.markdown("**🗂 광고세트**")
+    _df_c = df[df["캠페인명"].astype(str).isin(sel_campaign)] if sel_campaign else df
+    adset_opts = valid_opts(_df_c, "광고그룹명")
+    if "f_adset" in st.session_state:
+        st.session_state["f_adset"] = [x for x in st.session_state["f_adset"] if x in adset_opts]
+    sel_adset = st.multiselect("광고세트", adset_opts, placeholder="전체",
+                               key="f_adset", label_visibility="collapsed")
+    # 소재 (선택 캠페인+광고세트로 좁힘)
+    st.markdown("**🖼 소재**")
+    _df_ca = _df_c[_df_c["광고그룹명"].astype(str).isin(sel_adset)] if sel_adset else _df_c
+    creative_opts = valid_opts(_df_ca, "소재명")
+    if "f_creative" in st.session_state:
+        st.session_state["f_creative"] = [x for x in st.session_state["f_creative"] if x in creative_opts]
+    sel_creative = st.multiselect("소재", creative_opts, placeholder="전체",
+                                  key="f_creative", label_visibility="collapsed")
+    st.markdown("---")
     if st.button("🔄 데이터 새로고침"):
         st.cache_data.clear()
         st.rerun()
@@ -537,6 +568,12 @@ if sel_prodcode:
     mask &= df["제품코드"].astype(str).isin(sel_prodcode)
 if sel_event:
     mask &= df["스킴명"].astype(str).isin(sel_event)
+if sel_campaign:
+    mask &= df["캠페인명"].astype(str).isin(sel_campaign)
+if sel_adset:
+    mask &= df["광고그룹명"].astype(str).isin(sel_adset)
+if sel_creative:
+    mask &= df["소재명"].astype(str).isin(sel_creative)
 fdf = df[mask].copy()
 # 월별 추이: 연도 필터만 적용
 mask_year_only = pd.Series([True] * len(df), index=df.index)
@@ -638,3 +675,18 @@ with tab1:
     weekly_tbl = weekly_tbl.rename(columns={"week_start": "주차"})
     st.markdown("**📆 주차별 성과 (최근 4주)**")
     render_pinned_total_table(style_summary(weekly_tbl, "주차"))
+    # --- Meta 구조별 성과 (캠페인/광고세트/소재 필터 선택 시에만 표시) ---
+    if sel_campaign or sel_adset or sel_creative:
+        st.markdown("---")
+        st.markdown("**🅜 Meta 구조별 성과**")
+        st.caption("좌측 Meta 구조 필터로 좁힌 범위 기준입니다")
+        # 광고세트별
+        adset_tbl = sort_summary_by_spend(build_summary_table(fdf, "광고그룹명"), "광고그룹명")
+        adset_tbl = adset_tbl.rename(columns={"광고그룹명": "광고세트"})
+        st.markdown("**🗂 광고세트별 성과**")
+        render_pinned_total_table(style_summary(adset_tbl, "광고세트"))
+        # 소재별
+        creative_tbl = sort_summary_by_spend(build_summary_table(fdf, "소재명"), "소재명")
+        creative_tbl = creative_tbl.rename(columns={"소재명": "소재"})
+        st.markdown("**🖼 소재별 성과**")
+        render_pinned_total_table(style_summary(creative_tbl, "소재"))
