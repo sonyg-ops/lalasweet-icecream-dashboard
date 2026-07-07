@@ -1,3 +1,8 @@
 __pycache__/
 *.pyc
 .streamlit/secrets.toml
+
+# 구글 서비스계정 키 (절대 커밋 금지)
+lalasweet-bingwa-*.json
+*service-account*.json
+*.iam.json
