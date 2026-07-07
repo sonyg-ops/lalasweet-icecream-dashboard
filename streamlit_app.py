@@ -68,6 +68,30 @@ CREATIVE_TYPES = [
     "맛페인포인트",
     "5P소구",
 ]
+# --- 제품군 ↔ 제품코드 매핑 ---
+PRODUCT_GROUPS = {
+    "파인트":   ["P혼", "P망", "P요", "P복", "P바", "P초", "P말", "P오", "P우", "P치", "P애", "P고"],
+    "제로바":   ["ZB혼", "ZB오", "ZB포", "ZB자", "ZB귤", "ZB파"],
+    "요거트바": ["BA딸", "BA복", "BA블", "BA망", "BA혼"],
+    "저당바":   ["BA메", "BA팥"],
+    "저당콘":   ["CO바"],
+    "초코바":   ["C혼", "C바", "C초", "C말", "C쿠", "C딸"],
+    "쭈쭈바":   ["JJ혼", "JJ소", "JJ초"],
+    "모나카":   ["M혼", "M우", "M초", "M팥", "M옥", "M고"],
+    "빵샌드":   ["B혼", "B우", "B고"],
+    "넛티바":   ["NT바", "NT초", "NT혼"],
+    "아사이볼 요거베리": ["YB사"],
+    "젤라또바 (말차)":   ["JB말"],
+    "피스타치오": ["JB피"],
+    "선데":     ["SD초"],
+    "호두 꼬숩바": ["BA호"],
+    "미니생초코 (바닐라)": ["MB바"],
+    "옥수수 듬뿍바": ["BA옥"],
+    "듬뿍바":   ["DB딸", "DB키", "DB피", "DB혼", "DB베"],
+    "쫀득바":   ["JD멜", "JD망"],
+    "스틱바종류 전체 혼합": ["스혼"],
+}
+PRODUCT_GROUP = {code: grp for grp, codes in PRODUCT_GROUPS.items() for code in codes}
 # =============================================================
 # 헬퍼 함수
 # =============================================================
@@ -493,6 +517,8 @@ def load_data() -> pd.DataFrame:
     df["연"] = df["날짜"].dt.year.astype(str)
     df["월"] = df["날짜"].dt.month.astype(str).str.zfill(2)
     df["일"] = df["날짜"].dt.day.astype(str).str.zfill(2)
+    if "제품코드" in df.columns:
+        df["제품군"] = df["제품코드"].astype(str).str.strip().map(PRODUCT_GROUP).fillna("(기타)")
     return df.sort_values("날짜")
 
 
@@ -565,8 +591,8 @@ with st.sidebar:
     sel_months = st.multiselect("월", month_labels,
                                 default=[_cur_month] if _cur_month in month_labels else [],
                                 placeholder="전체", label_visibility="collapsed")
-    st.markdown("**📅 일**")
-    avail_dates = sorted(df["날짜"].dt.strftime("%Y-%m-%d").unique().tolist())
+    st.markdown("**📅 일** (최신순)")
+    avail_dates = sorted(df["날짜"].dt.strftime("%Y-%m-%d").unique().tolist(), reverse=True)
     sel_dates = st.multiselect("일", avail_dates, placeholder="전체",
                                label_visibility="collapsed")
     st.markdown("**📺 매체**")
@@ -575,12 +601,16 @@ with st.sidebar:
     st.markdown("**🎬 광고유형**")
     sel_adtype = st.multiselect("광고유형", valid_opts(df, "영상/이미지 구분"),
                                 placeholder="전체", label_visibility="collapsed")
+    st.markdown("**🍧 제품군**")
+    sel_prodgroup = st.multiselect("제품군", valid_opts(df, "제품군"),
+                                   placeholder="전체", label_visibility="collapsed")
     st.markdown("**📦 제품코드**")
-    sel_prodcode = st.multiselect("제품코드", valid_opts(df, "제품코드"),
-                                  placeholder="전체", label_visibility="collapsed")
-    st.markdown("**🎪 이벤트명**")
-    sel_event = st.multiselect("이벤트명", valid_opts(df, "스킴명"),
-                               placeholder="전체", label_visibility="collapsed")
+    _df_pg = df[df["제품군"].astype(str).isin(sel_prodgroup)] if sel_prodgroup else df
+    prodcode_opts = valid_opts(_df_pg, "제품코드")
+    if "f_prodcode" in st.session_state:
+        st.session_state["f_prodcode"] = [x for x in st.session_state["f_prodcode"] if x in prodcode_opts]
+    sel_prodcode = st.multiselect("제품코드", prodcode_opts, placeholder="전체",
+                                  key="f_prodcode", label_visibility="collapsed")
     st.markdown("---")
     st.markdown("**🅜 Meta 구조**")
     st.caption("↓ 캠페인부터 고르면 아래 목록이 좁혀져요")
@@ -608,6 +638,14 @@ with st.sidebar:
     sel_creative = st.multiselect("소재", creative_opts, placeholder="전체",
                                   key="f_creative", label_visibility="collapsed")
     st.markdown("---")
+    st.markdown("**🎨 포맷 · 연출**")
+    st.markdown("**🧩 대분류 포맷**")
+    sel_format = st.multiselect("대분류 포맷", valid_opts(df, "대분류 포맷"),
+                                placeholder="전체", label_visibility="collapsed")
+    st.markdown("**🎭 소분류 연출**")
+    sel_deroul = st.multiselect("소분류 연출", valid_opts(df, "소분류 연출"),
+                                placeholder="전체", label_visibility="collapsed")
+    st.markdown("---")
     if st.button("🔄 데이터 새로고침"):
         st.cache_data.clear()
         st.rerun()
@@ -627,16 +665,20 @@ if sel_media:
     mask &= df["매체"].astype(str).isin(sel_media)
 if sel_adtype:
     mask &= df["영상/이미지 구분"].astype(str).isin(sel_adtype)
+if sel_prodgroup:
+    mask &= df["제품군"].astype(str).isin(sel_prodgroup)
 if sel_prodcode:
     mask &= df["제품코드"].astype(str).isin(sel_prodcode)
-if sel_event:
-    mask &= df["스킴명"].astype(str).isin(sel_event)
 if sel_campaign:
     mask &= df["캠페인명"].astype(str).isin(sel_campaign)
 if sel_adset:
     mask &= df["광고그룹명"].astype(str).isin(sel_adset)
 if sel_creative:
     mask &= df["소재명"].astype(str).isin(sel_creative)
+if sel_format:
+    mask &= df["대분류 포맷"].astype(str).isin(sel_format)
+if sel_deroul:
+    mask &= df["소분류 연출"].astype(str).isin(sel_deroul)
 fdf = df[mask].copy()
 # 월별 추이: 연도 필터만 적용
 mask_year_only = pd.Series([True] * len(df), index=df.index)
@@ -653,7 +695,7 @@ kpi = calc_kpi(fdf)
 render_update_buttons()
 # 빙과 대시보드: 제과 전용 탭(단쉐·팝콘)은 제거하고 전체 요약만 사용.
 # (빙과 제품별 탭은 백필로 데이터가 쌓여 실제 제품코드를 확인한 뒤 추가 예정)
-(tab1,) = st.tabs(["📊 전체 요약"])
+tab1, tab2 = st.tabs(["📊 전체 요약", "🧩 분류별 성과"])
 # --- TAB 1: 전체 요약 ---
 with tab1:
     render_kpi(kpi)
@@ -738,9 +780,16 @@ with tab1:
     weekly_tbl = weekly_tbl.rename(columns={"week_start": "주차"})
     st.markdown("**📆 주차별 성과 (최근 4주)**")
     render_pinned_total_table(style_summary(weekly_tbl, "주차"))
+# --- TAB 2: 분류별 성과 ---
+with tab2:
+    render_kpi(kpi)
+    st.markdown("---")
+    if not (sel_campaign or sel_adset or sel_creative or sel_format or sel_deroul):
+        st.info("좌측 사이드바에서 **Meta 구조**(캠페인·광고세트·소재) 또는 "
+                "**포맷·연출**(대분류 포맷·소분류 연출) 필터를 선택하면 "
+                "여기에 분류별 성과 표가 나타납니다.")
     # --- Meta 구조별 성과 (캠페인/광고세트/소재 필터 선택 시에만 표시) ---
     if sel_campaign or sel_adset or sel_creative:
-        st.markdown("---")
         st.markdown("**🅜 Meta 구조별 성과**")
         st.caption("좌측 Meta 구조 필터로 좁힌 범위 기준입니다")
         # 광고세트별
@@ -753,3 +802,19 @@ with tab1:
         creative_tbl = creative_tbl.rename(columns={"소재명": "소재"})
         st.markdown("**🖼 소재별 성과**")
         render_pinned_total_table(style_summary(creative_tbl, "소재"))
+    # --- 포맷·연출별 성과 (대분류 포맷/소분류 연출 필터 선택 시에만 표시) ---
+    if sel_format or sel_deroul:
+        st.markdown("---")
+        st.markdown("**🎨 포맷·연출별 성과**")
+        st.caption("좌측 포맷·연출 필터로 좁힌 범위 기준입니다")
+        fdf_fd = fdf.copy()
+        for _c in ["대분류 포맷", "소분류 연출"]:
+            fdf_fd[_c] = (fdf_fd[_c].fillna("(미지정)").astype(str).str.strip()
+                          .replace({"": "(미지정)", "nan": "(미지정)",
+                                    "None": "(미지정)", "<NA>": "(미지정)"}))
+        fmt_tbl = sort_summary_by_spend(build_summary_table(fdf_fd, "대분류 포맷"), "대분류 포맷")
+        st.markdown("**🧩 대분류 포맷별 성과**")
+        render_pinned_total_table(style_summary(fmt_tbl, "대분류 포맷"))
+        der_tbl = sort_summary_by_spend(build_summary_table(fdf_fd, "소분류 연출"), "소분류 연출")
+        st.markdown("**🎭 소분류 연출별 성과**")
+        render_pinned_total_table(style_summary(der_tbl, "소분류 연출"))
