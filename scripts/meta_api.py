@@ -133,45 +133,93 @@ filtering = [
     {"field": "impressions", "operator": "GREATER_THAN", "value": 0},
 ]
 
-params = {
-    "level":       "ad",
-    "fields":      fields,
-    "time_range":  json.dumps({"since": str(since), "until": str(until)}),
-    "time_increment": 1,
-    "filtering":   json.dumps(filtering),
-    "use_unified_attribution_setting": "true",
-    "access_token": ACCESS_TOKEN,
-}
+# ── 인사이트 리포트 실행 (청크 단위) ────────────────────────────
+# 큰 날짜 범위(수백 일)를 한 번의 async 리포트로 요청하면 메타 요청 한도
+# (error_code 4, "Application request limit reached")에 걸려 중간에 Job Failed 된다.
+# → 범위를 CHUNK_DAYS 단위로 잘라 작은 리포트 여러 개로 나눠 수집하고,
+#    리포트가 일시적 오류로 실패하면 잠시 쉬었다가 리포트를 재생성한다.
+CHUNK_DAYS    = int(os.environ.get("META_CHUNK_DAYS", "30"))     # 청크당 최대 일수
+CHUNK_GAP_SEC = int(os.environ.get("META_CHUNK_GAP_SEC", "15"))  # 청크 사이 대기(초)
+REPORT_RETRY_DELAYS = [30, 60, 120, 300, 300]
+REPORT_TRANSIENT = (1, 2, 4, 17, 341, 613)
 
-run = api_call("POST", f"{BASE}/{AD_ACCOUNT_ID}/insights", data=params)
-report_id = run.get("report_run_id")
-if not report_id:
-    die(f"report_run_id 없음: {run}")
-log(f"리포트 작업 생성: {report_id}")
+class _ReportError(Exception):
+    def __init__(self, status):
+        self.status = status if isinstance(status, dict) else {"error_message": str(status)}
+        super().__init__(str(self.status))
 
-while True:
-    s  = api_call("GET", f"{BASE}/{report_id}", params={"access_token": ACCESS_TOKEN})
-    st = s.get("async_status")
-    log(f"  {s.get('async_percent_completion')}% / {st}")
-    if st == "Job Completed":
-        break
-    if st in ("Job Failed", "Job Skipped"):
-        die(f"리포트 작업 실패: {s}")
-    time.sleep(5)
+def _run_report_once(c_since, c_until):
+    """비동기 인사이트 리포트 1회 실행 → 행 리스트 반환. 작업 실패 시 _ReportError."""
+    params = {
+        "level":       "ad",
+        "fields":      fields,
+        "time_range":  json.dumps({"since": str(c_since), "until": str(c_until)}),
+        "time_increment": 1,
+        "filtering":   json.dumps(filtering),
+        "use_unified_attribution_setting": "true",
+        "access_token": ACCESS_TOKEN,
+    }
+    run = api_call("POST", f"{BASE}/{AD_ACCOUNT_ID}/insights", data=params)
+    report_id = run.get("report_run_id")
+    if not report_id:
+        raise _ReportError({"error_message": f"report_run_id 없음: {run}"})
+    log(f"  리포트 작업 생성: {report_id} ({c_since} ~ {c_until})")
 
+    while True:
+        s  = api_call("GET", f"{BASE}/{report_id}", params={"access_token": ACCESS_TOKEN})
+        st = s.get("async_status")
+        log(f"    {s.get('async_percent_completion')}% / {st}")
+        if st == "Job Completed":
+            break
+        if st in ("Job Failed", "Job Skipped"):
+            raise _ReportError(s)
+        time.sleep(5)
+
+    chunk_rows = []
+    url  = f"{BASE}/{report_id}/insights"
+    qp   = {"limit": 500, "access_token": ACCESS_TOKEN}
+    page = 0
+    while url:
+        resp  = api_call("GET", url, params=qp)
+        batch = resp.get("data", [])
+        chunk_rows.extend(batch)
+        page += 1
+        paging = resp.get("paging", {})
+        url = paging.get("next")
+        qp  = {}
+        log(f"    페이지 {page}: +{len(batch)}행 (청크 누적 {len(chunk_rows)}행)")
+    return chunk_rows
+
+def run_report(c_since, c_until):
+    """리포트 실행 + 일시적 실패(요청 한도 등) 시 재시도. 재시도 소진/영구오류면 die()."""
+    for attempt in range(len(REPORT_RETRY_DELAYS) + 1):
+        try:
+            return _run_report_once(c_since, c_until)
+        except _ReportError as e:
+            ec = e.status.get("error_code")
+            transient = ec in REPORT_TRANSIENT or bool(e.status.get("is_transient"))
+            if not transient or attempt >= len(REPORT_RETRY_DELAYS):
+                die(f"리포트 작업 실패({c_since}~{c_until}): {e.status}")
+            d = REPORT_RETRY_DELAYS[attempt]
+            log(f"  리포트 실패(code {ec}) -> {d}s 후 재시도 (시도 {attempt+1}/{len(REPORT_RETRY_DELAYS)})")
+            time.sleep(d)
+
+def _date_chunks(start, end, size_days):
+    cur = start
+    while cur <= end:
+        c_end = min(cur + datetime.timedelta(days=size_days - 1), end)
+        yield cur, c_end
+        cur = c_end + datetime.timedelta(days=1)
+
+chunks = list(_date_chunks(since, until, CHUNK_DAYS))
+log(f"수집 청크 {len(chunks)}개 (청크당 최대 {CHUNK_DAYS}일)")
 rows = []
-url  = f"{BASE}/{report_id}/insights"
-qp   = {"limit": 500, "access_token": ACCESS_TOKEN}
-page = 0
-while url:
-    resp  = api_call("GET", url, params=qp)
-    batch = resp.get("data", [])
-    rows.extend(batch)
-    page += 1
-    paging = resp.get("paging", {})
-    url = paging.get("next")
-    qp  = {}
-    log(f"  페이지 {page}: +{len(batch)}행 (누적 {len(rows)}행)")
+for i, (c_since, c_until) in enumerate(chunks, 1):
+    log(f"[청크 {i}/{len(chunks)}] {c_since} ~ {c_until}")
+    rows.extend(run_report(c_since, c_until))
+    log(f"  전체 누적 {len(rows)}행")
+    if i < len(chunks) and CHUNK_GAP_SEC > 0:
+        time.sleep(CHUNK_GAP_SEC)
 
 adset_ids = sorted({r.get("adset_id") for r in rows if r.get("adset_id")})
 opt_map   = {}
