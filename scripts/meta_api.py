@@ -271,6 +271,21 @@ BINGWA_AD_CODES = [
     "BA망", "CO바", "P혼", "ZB귤", "ZB파", "제로바",
     "BA딸", "BA옥", "BA혼", "JD망", "MB바", "M우", "M팥",
 ]
+# 파인트 제품코드: 캠페인명에 "파인트" 등 빙과 키워드가 없어도, 소재의 제품코드가
+# 파인트면 빙과로 수집한다. (P말 등이 파인트 안 붙은 캠페인에서 돌아도 누락 안 되도록)
+# 목록은 streamlit_app.py 의 PRODUCT_GROUPS["파인트"] 와 동일하게 유지.
+BINGWA_PRODUCT_CODES = [
+    "P혼", "P망", "P요", "P복", "P바", "P초", "P말", "P오", "P우", "P치", "P애", "P고",
+]
+
+def _product_code(ad_name: str) -> str:
+    # 소재명 형식: [YY.MM]<채널>_<영상/이미지>_<제품코드>_...  → 3번째 토큰이 제품코드.
+    # (substring이 아닌 토큰 단위로 확인 → "P바" 등이 문구 중간에 우연히 들어간
+    #  제과 소재를 오수집하지 않음)
+    if not ad_name or not ad_name.startswith("["):
+        return ""
+    parts = ad_name.split("_")
+    return parts[2] if len(parts) > 2 else ""
 
 def is_bingwa(campaign_name: str, ad_name: str) -> bool:
     c = campaign_name or ""
@@ -278,6 +293,9 @@ def is_bingwa(campaign_name: str, ad_name: str) -> bool:
     if any(kw in c for kw in BINGWA_CAMPAIGN_KW):
         return True
     if any(code in a for code in BINGWA_AD_CODES):
+        return True
+    # 파인트 제품코드면 캠페인명과 무관하게 빙과로 수집
+    if _product_code(a) in BINGWA_PRODUCT_CODES:
         return True
     # C혼(초코...)은 빙과, 단 PC혼은 팝콘(제과)이므로 제외
     if "C혼" in a and "PC혼" not in a:
