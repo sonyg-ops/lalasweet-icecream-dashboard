@@ -226,10 +226,9 @@ def _page_more(sk: str, page_size: int) -> None:
     st.session_state[sk] = st.session_state.get(sk, page_size) + page_size
 def _page_less(sk: str, page_size: int) -> None:
     st.session_state[sk] = page_size
-# 포맷·연출 / Meta 구조 / 담당자 필터 일괄 초기화용 키 + 콜백
-_RESET_KEYS = ["f_format", "f_deroul", "f_campaign", "f_adset", "f_creative", "f_marketer", "f_designer"]
-def _reset_filters() -> None:
-    for k in _RESET_KEYS:
+# 필터 그룹별 선택 초기화 콜백 (버튼 on_click, 초기화할 key 목록을 받음)
+def _reset_keys(keys) -> None:
+    for k in keys:
         st.session_state[k] = []
 def render_table_paged(df: pd.DataFrame, key: str, page_size: int = 10, link_col: str = None) -> None:
     """상위 page_size개(+총합계)만 보여주고 '더보기'로 10개씩 펼침.
@@ -694,6 +693,9 @@ with st.sidebar:
         st.session_state["f_deroul"] = [x for x in st.session_state["f_deroul"] if x in deroul_opts]
     sel_deroul = st.multiselect("소분류 연출", deroul_opts, placeholder="전체",
                                 key="f_deroul", label_visibility="collapsed")
+    st.button("↩️ 포맷·연출 초기화", key="rst_fd",
+              on_click=_reset_keys, args=(["f_format", "f_deroul"],),
+              use_container_width=True)
     st.markdown("---")
     st.markdown("**🅜 Meta 구조**")
     st.caption("↓ 캠페인부터 고르면 아래 목록이 좁혀져요")
@@ -720,6 +722,9 @@ with st.sidebar:
         st.session_state["f_creative"] = [x for x in st.session_state["f_creative"] if x in creative_opts]
     sel_creative = st.multiselect("소재", creative_opts, placeholder="전체",
                                   key="f_creative", label_visibility="collapsed")
+    st.button("↩️ Meta 구조 초기화", key="rst_meta",
+              on_click=_reset_keys, args=(["f_campaign", "f_adset", "f_creative"],),
+              use_container_width=True)
     st.markdown("---")
     st.markdown("**👤 담당자**")
     st.markdown("**🧑‍💼 마케터**")
@@ -730,8 +735,9 @@ with st.sidebar:
     sel_designer = st.multiselect("PD/디자이너", person_name_opts(df, "PD/디자이너"),
                                   placeholder="전체 (이름 입력해 검색)",
                                   key="f_designer", label_visibility="collapsed")
-    st.button("↩️ 포맷·연출 / Meta 구조 / 담당자 선택 초기화",
-              on_click=_reset_filters, use_container_width=True)
+    st.button("↩️ 담당자 초기화", key="rst_person",
+              on_click=_reset_keys, args=(["f_marketer", "f_designer"],),
+              use_container_width=True)
     st.markdown("---")
     st.markdown("**💰 광고비 최소금액**")
     st.caption("분류별 성과 표에서 합계 광고비가 이 금액 미만인 항목을 숨깁니다 (0 = 전체 표시)")
