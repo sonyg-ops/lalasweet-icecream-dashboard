@@ -649,7 +649,7 @@ with st.sidebar:
     _wk_all = (df["날짜"] - pd.to_timedelta(df["날짜"].dt.weekday, unit="D")).dt.normalize()
     avail_weeks = sorted(_wk_all.dt.date.unique().tolist(), reverse=True)
     def _wk_label(ws):
-        return f"{ws.strftime('%m/%d')}~{(ws + timedelta(days=6)).strftime('%m/%d')}"
+        return f"{ws.year} {ws.strftime('%m/%d')}~{(ws + timedelta(days=6)).strftime('%m/%d')}"
     sel_weeks = st.multiselect("주", avail_weeks, format_func=_wk_label,
                                placeholder="전체", label_visibility="collapsed")
     st.markdown("**📅 일** (최신순)")
