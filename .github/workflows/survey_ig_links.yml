@@ -1,0 +1,50 @@
+name: 광고 소재 인스타 링크 표본조사
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: '조사 시작일 (YYYY-MM-DD, 비우면 90일 전)'
+        required: false
+      until:
+        description: '조사 종료일 (YYYY-MM-DD, 비우면 어제)'
+        required: false
+      min_spend:
+        description: '소재 최소 광고비 (기본 1000000)'
+        required: false
+        default: '1000000'
+
+jobs:
+  survey:
+    runs-on: ubuntu-latest
+    env:
+      SURVEY_SINCE: "${{ github.event.inputs.since }}"
+      SURVEY_UNTIL: "${{ github.event.inputs.until }}"
+      SURVEY_MIN_SPEND: "${{ github.event.inputs.min_spend }}"
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+        with:
+          token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: pip install requests
+
+      - name: 표본 조사 실행
+        env:
+          META_ACCESS_TOKEN: "${{ secrets.META_ACCESS_TOKEN }}"
+          META_AD_ACCOUNT_ID: "${{ secrets.META_AD_ACCOUNT_ID }}"
+        run: python scripts/survey_ig_links.py
+
+      - name: 결과 커밋 & 푸시
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ig_link_survey.csv
+          git diff --cached --quiet || git commit -m "표본조사: 광고 소재 인스타 링크 연결 가능성"
+          git push
