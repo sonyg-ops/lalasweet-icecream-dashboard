@@ -226,6 +226,11 @@ def _page_more(sk: str, page_size: int) -> None:
     st.session_state[sk] = st.session_state.get(sk, page_size) + page_size
 def _page_less(sk: str, page_size: int) -> None:
     st.session_state[sk] = page_size
+# 포맷·연출 / Meta 구조 / 담당자 필터 일괄 초기화용 키 + 콜백
+_RESET_KEYS = ["f_format", "f_deroul", "f_campaign", "f_adset", "f_creative", "f_marketer", "f_designer"]
+def _reset_filters() -> None:
+    for k in _RESET_KEYS:
+        st.session_state[k] = []
 def render_table_paged(df: pd.DataFrame, key: str, page_size: int = 10, link_col: str = None) -> None:
     """상위 page_size개(+총합계)만 보여주고 '더보기'로 10개씩 펼침.
     총합계 행은 펼침과 무관하게 항상 전체 기준으로 표시."""
@@ -719,10 +724,14 @@ with st.sidebar:
     st.markdown("**👤 담당자**")
     st.markdown("**🧑‍💼 마케터**")
     sel_marketer = st.multiselect("마케터", person_name_opts(df, "마케터"),
-                                  placeholder="전체 (이름 입력해 검색)", label_visibility="collapsed")
+                                  placeholder="전체 (이름 입력해 검색)",
+                                  key="f_marketer", label_visibility="collapsed")
     st.markdown("**🎨 PD/디자이너**")
     sel_designer = st.multiselect("PD/디자이너", person_name_opts(df, "PD/디자이너"),
-                                  placeholder="전체 (이름 입력해 검색)", label_visibility="collapsed")
+                                  placeholder="전체 (이름 입력해 검색)",
+                                  key="f_designer", label_visibility="collapsed")
+    st.button("↩️ 포맷·연출 / Meta 구조 / 담당자 선택 초기화",
+              on_click=_reset_filters, use_container_width=True)
     st.markdown("---")
     st.markdown("**💰 광고비 최소금액**")
     st.caption("분류별 성과 표에서 합계 광고비가 이 금액 미만인 항목을 숨깁니다 (0 = 전체 표시)")
