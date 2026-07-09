@@ -348,6 +348,12 @@ def valid_opts(df: pd.DataFrame, col: str) -> list:
     grp = df.groupby(col)["노출"].sum()
     return sorted([str(v) for v, imp in grp.items()
                    if str(v).strip() != "" and imp > 0])
+_HANGUL_NAME = re.compile(r"^[가-힣]{2,4}$")
+_NON_NAME = {"브랜드", "콘텐츠", "확장"}  # 한글이지만 사람 이름 아님(파싱 어긋남에서 온 카테고리 단어)
+def person_name_opts(df: pd.DataFrame, col: str) -> list:
+    # 담당자 드롭다운: 한글 2~4자 사람 이름만 남기고 날짜·영문·'- 사본'·'~팀'·카테고리 단어 등 노이즈 제거
+    return [o for o in valid_opts(df, col)
+            if _HANGUL_NAME.match(o) and not o.endswith("팀") and o not in _NON_NAME]
 def week_label(ws) -> str:
     if ws == "총합계":
         return ws
@@ -633,7 +639,8 @@ with st.sidebar:
     sel_media = st.multiselect("매체", valid_opts(df, "매체"),
                                placeholder="전체", label_visibility="collapsed")
     st.markdown("**🎬 광고유형**")
-    sel_adtype = st.multiselect("광고유형", valid_opts(df, "영상/이미지 구분"),
+    sel_adtype = st.multiselect("광고유형",
+                                [o for o in valid_opts(df, "영상/이미지 구분") if o in ("I", "V")],
                                 placeholder="전체", label_visibility="collapsed")
     st.markdown("**🍧 제품군**")
     sel_prodgroup = st.multiselect("제품군", valid_opts(df, "제품군"),
@@ -682,10 +689,10 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**👤 담당자**")
     st.markdown("**🧑‍💼 마케터**")
-    sel_marketer = st.multiselect("마케터", valid_opts(df, "마케터"),
+    sel_marketer = st.multiselect("마케터", person_name_opts(df, "마케터"),
                                   placeholder="전체 (이름 입력해 검색)", label_visibility="collapsed")
     st.markdown("**🎨 PD/디자이너**")
-    sel_designer = st.multiselect("PD/디자이너", valid_opts(df, "PD/디자이너"),
+    sel_designer = st.multiselect("PD/디자이너", person_name_opts(df, "PD/디자이너"),
                                   placeholder="전체 (이름 입력해 검색)", label_visibility="collapsed")
     st.markdown("---")
     st.markdown("**💰 광고비 최소금액**")
