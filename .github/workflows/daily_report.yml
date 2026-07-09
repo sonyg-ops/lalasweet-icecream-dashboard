@@ -51,7 +51,7 @@ jobs:
       - name: 인스타 광고페이지 링크 조회
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-          LINK_MIN_SPEND: '1000000'
+          LINK_MIN_SPEND: '100000'   # 하루에 이 금액 이상 쓴 소재의 링크를 자동 추가(캐시)
         run: python scripts/fetch_ig_links.py
 
       - name: 통합 RD 빌드
