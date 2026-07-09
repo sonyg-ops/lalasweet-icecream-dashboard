@@ -635,6 +635,16 @@ with st.sidebar:
     avail_dates = sorted(df["날짜"].dt.strftime("%Y-%m-%d").unique().tolist(), reverse=True)
     sel_dates = st.multiselect("일", avail_dates, placeholder="전체",
                                label_visibility="collapsed")
+    # 위에서 고른 기간(연/월/일)으로 아래 포맷·연출·Meta 구조 드롭다운을 좁힌다
+    df_scope = df
+    if sel_years:
+        df_scope = df_scope[df_scope["날짜"].dt.year.isin(sel_years)]
+    if sel_months:
+        _scope_mnums = [int(m.replace("월", "")) for m in sel_months]
+        df_scope = df_scope[df_scope["날짜"].dt.month.isin(_scope_mnums)]
+    if sel_dates:
+        df_scope = df_scope[df_scope["날짜"].dt.strftime("%Y-%m-%d").isin(sel_dates)]
+    st.caption("↓ 포맷·연출·Meta 구조는 위 기간에 광고비가 있는 항목만 표시돼요")
     st.markdown("**📺 매체**")
     sel_media = st.multiselect("매체", valid_opts(df, "매체"),
                                placeholder="전체", label_visibility="collapsed")
@@ -655,24 +665,30 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**🎨 포맷 · 연출**")
     st.markdown("**🧩 대분류 포맷**")
-    sel_format = st.multiselect("대분류 포맷", valid_opts(df, "대분류 포맷"),
-                                placeholder="전체", label_visibility="collapsed")
+    format_opts = valid_opts(df_scope, "대분류 포맷")
+    if "f_format" in st.session_state:
+        st.session_state["f_format"] = [x for x in st.session_state["f_format"] if x in format_opts]
+    sel_format = st.multiselect("대분류 포맷", format_opts, placeholder="전체",
+                                key="f_format", label_visibility="collapsed")
     st.markdown("**🎭 소분류 연출**")
-    sel_deroul = st.multiselect("소분류 연출", valid_opts(df, "소분류 연출"),
-                                placeholder="전체", label_visibility="collapsed")
+    deroul_opts = valid_opts(df_scope, "소분류 연출")
+    if "f_deroul" in st.session_state:
+        st.session_state["f_deroul"] = [x for x in st.session_state["f_deroul"] if x in deroul_opts]
+    sel_deroul = st.multiselect("소분류 연출", deroul_opts, placeholder="전체",
+                                key="f_deroul", label_visibility="collapsed")
     st.markdown("---")
     st.markdown("**🅜 Meta 구조**")
     st.caption("↓ 캠페인부터 고르면 아래 목록이 좁혀져요")
     # 캠페인
     st.markdown("**📢 캠페인**")
-    camp_opts = valid_opts(df, "캠페인명")
+    camp_opts = valid_opts(df_scope, "캠페인명")
     if "f_campaign" in st.session_state:
         st.session_state["f_campaign"] = [x for x in st.session_state["f_campaign"] if x in camp_opts]
     sel_campaign = st.multiselect("캠페인", camp_opts, placeholder="전체",
                                   key="f_campaign", label_visibility="collapsed")
     # 광고세트 (선택 캠페인으로 좁힘)
     st.markdown("**🗂 광고세트**")
-    _df_c = df[df["캠페인명"].astype(str).isin(sel_campaign)] if sel_campaign else df
+    _df_c = df_scope[df_scope["캠페인명"].astype(str).isin(sel_campaign)] if sel_campaign else df_scope
     adset_opts = valid_opts(_df_c, "광고그룹명")
     if "f_adset" in st.session_state:
         st.session_state["f_adset"] = [x for x in st.session_state["f_adset"] if x in adset_opts]
