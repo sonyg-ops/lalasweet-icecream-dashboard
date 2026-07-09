@@ -644,7 +644,7 @@ with st.sidebar:
         df_scope = df_scope[df_scope["날짜"].dt.month.isin(_scope_mnums)]
     if sel_dates:
         df_scope = df_scope[df_scope["날짜"].dt.strftime("%Y-%m-%d").isin(sel_dates)]
-    st.caption("↓ 포맷·연출·Meta 구조는 위 기간에 광고비가 있는 항목만 표시돼요")
+    st.caption("↓ 포맷·연출·Meta 구조는 위에서 고른 기간·광고유형 기준으로 좁혀져요")
     st.markdown("**📺 매체**")
     sel_media = st.multiselect("매체", valid_opts(df, "매체"),
                                placeholder="전체", label_visibility="collapsed")
@@ -652,6 +652,9 @@ with st.sidebar:
     sel_adtype = st.multiselect("광고유형",
                                 [o for o in valid_opts(df, "영상/이미지 구분") if o in ("I", "V")],
                                 placeholder="전체", label_visibility="collapsed")
+    # 광고유형 선택도 아래 포맷·연출·Meta 구조 드롭다운에 반영
+    if sel_adtype:
+        df_scope = df_scope[df_scope["영상/이미지 구분"].astype(str).isin(sel_adtype)]
     st.markdown("**🍧 제품군**")
     sel_prodgroup = st.multiselect("제품군", valid_opts(df, "제품군"),
                                    placeholder="전체", label_visibility="collapsed")
