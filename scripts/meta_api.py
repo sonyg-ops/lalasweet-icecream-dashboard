@@ -122,7 +122,7 @@ if gap_days > 60:
 log(f"수집 범위: {since} ~ {until} ({gap_days}일)")
 
 fields = (
-    "campaign_name,adset_id,adset_name,ad_name,impressions,spend,"
+    "ad_id,campaign_name,adset_id,adset_name,ad_name,impressions,spend,"
     "inline_link_clicks,video_thruplay_watched_actions,actions"
 )
 
@@ -295,6 +295,7 @@ for r in rows:
 
     out.append({
         "date":          r.get("date_start"),
+        "ad_id":         r.get("ad_id", ""),
         "campaign_name": r.get("campaign_name"),
         "adset_name":    r.get("adset_name"),
         "ad_name":       ad_name,

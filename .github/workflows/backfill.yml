@@ -9,6 +9,10 @@ on:
       until:
         description: '종료일 (YYYY-MM-DD, 예: 2026-05-31)'
         required: true
+      link_min_spend:
+        description: '인스타 링크를 붙일 소재 최소 광고비 (원). 이 금액 이상 쓴 소재만 링크 조회'
+        required: false
+        default: '1000000'
 
 jobs:
   backfill:
@@ -16,6 +20,7 @@ jobs:
     env:
       BACKFILL_SINCE: "${{ github.event.inputs.since }}"
       BACKFILL_UNTIL: "${{ github.event.inputs.until }}"
+      LINK_MIN_SPEND: "${{ github.event.inputs.link_min_spend }}"
     steps:
       - name: 저장소 체크아웃
         uses: actions/checkout@v4
@@ -48,6 +53,11 @@ jobs:
           SLACK_BOT_TOKEN: "${{ secrets.SLACK_BOT_TOKEN }}"
           SLACK_USER_ID: "${{ secrets.SLACK_USER_ID }}"
         run: python scripts/tiktok_api.py
+
+      - name: 인스타 광고페이지 링크 조회
+        env:
+          META_ACCESS_TOKEN: "${{ secrets.META_ACCESS_TOKEN }}"
+        run: python scripts/fetch_ig_links.py
 
       - name: 통합 RD 빌드
         run: python scripts/build_rd.py

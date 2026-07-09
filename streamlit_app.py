@@ -105,9 +105,10 @@ def _col_width(i: int, name) -> int:
     if i == 0:
         return 190            # 첫 열(소재명 등)은 넓게 — 길면 말줄임 표시
     return COL_WIDTHS.get(str(name), 95)
-def render_pinned_total_table(df: pd.DataFrame) -> None:
+def render_pinned_total_table(df: pd.DataFrame, link_col: str = None) -> None:
     tid = "tbl_" + uuid.uuid4().hex[:8]
-    first_col = df.columns[0]
+    cols = [c for c in df.columns if c != link_col]   # link_col은 표시 안 하고 링크용으로만 사용
+    first_col = cols[0]
     data  = df[df[first_col] != "총합계"].reset_index(drop=True)
     total = df[df[first_col] == "총합계"]
     th = ("position:relative; padding:0; text-align:left; background:#f0f2f6;"
@@ -121,7 +122,7 @@ def render_pinned_total_table(df: pd.DataFrame) -> None:
           f"overflow:hidden; text-overflow:ellipsis;"
           f"background:{TOTAL_BG}; color:{TOTAL_FG}; font-weight:{TOTAL_FONT};"
           f"border-top:2px solid #ddd;")
-    widths  = [_col_width(i, c) for i, c in enumerate(df.columns)]
+    widths  = [_col_width(i, c) for i, c in enumerate(cols)]
     total_w = sum(widths)
     colgroup = "<colgroup>" + "".join(f'<col style="width:{w}px">' for w in widths) + "</colgroup>"
     hdr = "".join(
@@ -129,14 +130,23 @@ def render_pinned_total_table(df: pd.DataFrame) -> None:
         f'<div style="{hd}" onclick="sortTbl(\'{tid}\',{i})">'
         f'{_esc(col)} <span style="color:#bbb;font-size:0.7rem">&#x21C5;</span></div>'
         f'<div style="{rz}" data-col="{i}" class="rz"></div></th>'
-        for i, col in enumerate(df.columns)
+        for i, col in enumerate(cols)
     )
+    def _cell(row, col, style):
+        v = row[col]
+        if link_col and col == first_col:
+            url = str(row.get(link_col, "") or "").strip()
+            if url:
+                return (f'<td title="{_esc(v)}" style="{style}">'
+                        f'<a href="{_esc(url)}" target="_blank" rel="noopener" '
+                        f'style="color:#1a73e8;text-decoration:none;">{_esc(v)} &#128279;</a></td>')
+        return f'<td title="{_esc(v)}" style="{style}">{_esc(v)}</td>'
     bdy = "".join(
-        "<tr>" + "".join(f'<td title="{_esc(v)}" style="{td}">{_esc(v)}</td>' for v in row) + "</tr>"
+        "<tr>" + "".join(_cell(row, col, td) for col in cols) + "</tr>"
         for _, row in data.iterrows()
     )
     ftr = ("".join(
-        "<tr>" + "".join(f'<td title="{_esc(v)}" style="{tf}">{_esc(v)}</td>' for v in row) + "</tr>"
+        "<tr>" + "".join(_cell(row, col, tf) for col in cols) + "</tr>"
         for _, row in total.iterrows()
     ) if not total.empty else "")
     js = (
@@ -216,20 +226,20 @@ def _page_more(sk: str, page_size: int) -> None:
     st.session_state[sk] = st.session_state.get(sk, page_size) + page_size
 def _page_less(sk: str, page_size: int) -> None:
     st.session_state[sk] = page_size
-def render_table_paged(df: pd.DataFrame, key: str, page_size: int = 10) -> None:
+def render_table_paged(df: pd.DataFrame, key: str, page_size: int = 10, link_col: str = None) -> None:
     """상위 page_size개(+총합계)만 보여주고 '더보기'로 10개씩 펼침.
     총합계 행은 펼침과 무관하게 항상 전체 기준으로 표시."""
-    first_col = df.columns[0]
+    first_col = next((c for c in df.columns if c != link_col), df.columns[0])
     data  = df[df[first_col] != "총합계"].reset_index(drop=True)
     total = df[df[first_col] == "총합계"]
     n = len(data)
     if n <= page_size:
-        render_pinned_total_table(df)
+        render_pinned_total_table(df, link_col=link_col)
         return
     sk = f"shown_{key}"
     shown = min(st.session_state.get(sk, page_size), n)
     view = pd.concat([data.head(shown), total], ignore_index=True)
-    render_pinned_total_table(view)
+    render_pinned_total_table(view, link_col=link_col)
     remaining = n - shown
     c1, c2, c3 = st.columns([1.6, 1.2, 5], vertical_alignment="center")
     if remaining > 0:
@@ -887,9 +897,20 @@ with tab2:
     adset_tbl = adset_tbl.rename(columns={"광고그룹명": "광고세트"})
     st.markdown("**🗂 광고세트별 성과**")
     render_table_paged(style_summary(adset_tbl, "광고세트"), "adset")
-    # 소재별
+    # 소재별 (소재명 클릭 → 인스타 광고페이지)
     creative_tbl = filter_min_spend(
         sort_summary_by_spend(build_summary_table(fdf, "소재명"), "소재명"), min_spend)
     creative_tbl = creative_tbl.rename(columns={"소재명": "소재"})
+    # 소재명 → 인스타링크 매핑 (RD에 '인스타링크' 열이 있을 때만; 없으면 링크 없이 표시)
+    link_map = {}
+    if "인스타링크" in fdf.columns:
+        _lk = fdf[["소재명", "인스타링크"]].copy()
+        _lk["인스타링크"] = _lk["인스타링크"].astype(str).str.strip()
+        _lk = _lk[_lk["인스타링크"] != ""]
+        link_map = dict(zip(_lk["소재명"], _lk["인스타링크"]))
     st.markdown("**🖼 소재별 성과**")
-    render_table_paged(style_summary(creative_tbl, "소재"), "creative")
+    if link_map:
+        st.caption("소재명을 클릭하면 인스타 광고페이지가 열려요 🔗")
+    styled_creative = style_summary(creative_tbl, "소재")
+    styled_creative["_link"] = styled_creative["소재"].map(link_map).fillna("")
+    render_table_paged(styled_creative, "creative", link_col="_link")

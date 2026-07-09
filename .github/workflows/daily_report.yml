@@ -48,6 +48,12 @@ jobs:
           SLACK_USER_ID: ${{ secrets.SLACK_USER_ID }}
         run: python scripts/tiktok_api.py
 
+      - name: 인스타 광고페이지 링크 조회
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          LINK_MIN_SPEND: '1000000'
+        run: python scripts/fetch_ig_links.py
+
       - name: 통합 RD 빌드
         run: python scripts/build_rd.py
 

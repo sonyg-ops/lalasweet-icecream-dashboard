@@ -9,7 +9,7 @@
     기존 마스터에서 해당 날짜 범위 행만 제거 후 새 데이터로 교체
     (다른 날짜 데이터는 보존)
 """
-import os, glob, re
+import os, glob, re, csv
 import pandas as pd
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
@@ -31,6 +31,8 @@ RD_COLUMNS = [
     "파트 구분", "마케터", "집행시작일", "본부 구분", "PD/디자이너",
     # 성과 지표 (메타+틱톡 공통)
     "노출", "클릭", "CTR (%)", "광고비 (KRW)", "CPC (KRW)", "전환수", "CPA (KRW)",
+    # 소재 → 인스타 광고페이지 링크 (fetch_ig_links.py 가 채운 data/ig_links.csv 에서 조인)
+    "인스타링크",
 ]
 
 PARSE_COLS = [
@@ -187,5 +189,24 @@ if not master.empty:
 
 result = pd.concat([master, new_df], ignore_index=True)
 result = result.sort_values("날짜", kind="stable").reset_index(drop=True)
+
+# 소재명 → 인스타 광고페이지 링크 조인 (data/ig_links.csv, 없거나 빈 값이면 공란)
+IG_PATH = os.path.join(DATA_DIR, "ig_links.csv")
+link_map = {}
+if os.path.exists(IG_PATH):
+    with open(IG_PATH, encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            u = (r.get("instagram_permalink") or "").strip()
+            if u:
+                link_map[(r.get("소재명") or "").strip()] = u
+    print(f"인스타링크 매핑 로드: {len(link_map)}개")
+result["인스타링크"] = result["소재명"].astype(str).str.strip().map(link_map).fillna("")
+
+# 컬럼 누락 방지 + 순서 고정
+for c in RD_COLUMNS:
+    if c not in result.columns:
+        result[c] = ""
+result = result[RD_COLUMNS]
+
 result.to_csv(MASTER_PATH, index=False, encoding="utf-8-sig")
 print(f"통합 RD 완료: +{len(new_df)}행 반영 -> 총 {len(result)}행 ({MASTER_PATH})")
