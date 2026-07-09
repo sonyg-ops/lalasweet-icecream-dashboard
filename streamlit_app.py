@@ -645,6 +645,13 @@ with st.sidebar:
     sel_months = st.multiselect("월", month_labels,
                                 default=[_cur_month] if _cur_month in month_labels else [],
                                 placeholder="전체", label_visibility="collapsed")
+    st.markdown("**📅 주** (월~일)")
+    _wk_all = (df["날짜"] - pd.to_timedelta(df["날짜"].dt.weekday, unit="D")).dt.normalize()
+    avail_weeks = sorted(_wk_all.dt.date.unique().tolist(), reverse=True)
+    def _wk_label(ws):
+        return f"{ws.strftime('%m/%d')}~{(ws + timedelta(days=6)).strftime('%m/%d')}"
+    sel_weeks = st.multiselect("주", avail_weeks, format_func=_wk_label,
+                               placeholder="전체", label_visibility="collapsed")
     st.markdown("**📅 일** (최신순)")
     avail_dates = sorted(df["날짜"].dt.strftime("%Y-%m-%d").unique().tolist(), reverse=True)
     sel_dates = st.multiselect("일", avail_dates, placeholder="전체",
@@ -656,6 +663,9 @@ with st.sidebar:
     if sel_months:
         _scope_mnums = [int(m.replace("월", "")) for m in sel_months]
         df_scope = df_scope[df_scope["날짜"].dt.month.isin(_scope_mnums)]
+    if sel_weeks:
+        _scope_wk = (df_scope["날짜"] - pd.to_timedelta(df_scope["날짜"].dt.weekday, unit="D")).dt.normalize().dt.date
+        df_scope = df_scope[_scope_wk.isin(sel_weeks)]
     if sel_dates:
         df_scope = df_scope[df_scope["날짜"].dt.strftime("%Y-%m-%d").isin(sel_dates)]
     st.caption("↓ 포맷·연출·Meta 구조는 위에서 고른 기간·광고유형 기준으로 좁혀져요")
@@ -757,6 +767,9 @@ if sel_years:
 if sel_months:
     sel_month_nums = [int(m.replace("월", "")) for m in sel_months]
     mask &= df["날짜"].dt.month.isin(sel_month_nums)
+if sel_weeks:
+    _row_wk = (df["날짜"] - pd.to_timedelta(df["날짜"].dt.weekday, unit="D")).dt.normalize().dt.date
+    mask &= _row_wk.isin(sel_weeks)
 if sel_dates:
     mask &= df["날짜"].dt.strftime("%Y-%m-%d").isin(sel_dates)
 if sel_media:
