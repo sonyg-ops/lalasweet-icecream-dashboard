@@ -14,6 +14,11 @@ on:
         required: false
         default: ''
 
+# 데이터 쓰는 워크플로(백필·일일·새로고침)를 같은 그룹으로 묶어 동시 실행 방지(순차 대기)
+concurrency:
+  group: lalasweet-data-write
+  cancel-in-progress: false
+
 jobs:
   collect-and-build:
     runs-on: ubuntu-latest
@@ -74,9 +79,16 @@ jobs:
             echo "변경 없음"; exit 0
           fi
           git commit -m "자동 수집: $(date +'%Y-%m-%d')"
-          # 수집 도중 다른 자동 커밋이 올라왔을 수 있으므로 rebase 후 재시도 (경합 방지)
+          # 원격이 앞서 있으면 rebase, 데이터 파일 충돌 시엔 이번 수집 결과를 우선 채택
           for i in 1 2 3 4 5; do
-            git pull --rebase origin main && git push && { echo "푸시 성공"; exit 0; }
-            echo "재시도 $i..."; sleep 5
+            if git push origin main; then echo "푸시 성공"; exit 0; fi
+            echo "재시도 $i: 원격 갱신 반영"
+            git fetch origin main
+            if ! git rebase origin/main; then
+              echo "데이터 충돌 → 이번 수집 결과 우선"
+              git rebase --abort || true
+              git merge -s ours -m "원격 병합(수집 데이터 유지)" origin/main || true
+            fi
+            sleep 3
           done
           echo "푸시 실패"; exit 1
