@@ -99,7 +99,7 @@ def _esc(v) -> str:
     return _html.escape(str(v))
 COL_WIDTHS = {
     "광고비": 120, "CPA": 100, "CPC": 95, "CVR": 80, "CTR": 80,
-    "노출": 115, "링크 클릭": 95, "구매": 85,
+    "노출": 115, "링크 클릭": 95, "구매": 85, "소재 링크": 240,
 }
 def _col_width(i: int, name) -> int:
     if i == 0:
@@ -302,7 +302,7 @@ def style_summary(df: pd.DataFrame, first_col: str) -> pd.DataFrame:
     s["CVR"]     = s["CVR"].apply(lambda x: f"{x:.2f}%")
     s["CPA"]     = s["CPA"].apply(lambda x: f"{int(x):,}")
     s = s.rename(columns={"링크클릭": "링크 클릭"})
-    order = [first_col, "광고비", "CPA", "CPC", "CVR", "CTR", "노출", "링크 클릭", "구매"]
+    order = [first_col, "광고비", "CPA", "CPC", "CVR"]
     return s[[c for c in order if c in s.columns]]
 def perf_row(label: str, d: pd.DataFrame, key_col: str = "구분") -> dict:
     s = d["광고비 (KRW)"].sum()
@@ -356,7 +356,7 @@ def daily_table(d: pd.DataFrame) -> pd.DataFrame:
         "CPA":      f"{int(ts/tv):,}" if tv > 0 else "0",
     }])
     out = pd.concat([tbl, total], ignore_index=True)
-    order = ["일", "광고비", "CPA", "CPC", "CVR", "CTR", "노출", "링크 클릭", "구매"]
+    order = ["일", "광고비", "CPA", "CPC", "CVR"]
     return out[order]
 def valid_opts(df: pd.DataFrame, col: str) -> list:
     grp = df.groupby(col)["노출"].sum()
@@ -941,4 +941,7 @@ with tab2:
         st.caption("소재명을 클릭하면 인스타 광고페이지가 열려요 🔗")
     styled_creative = style_summary(creative_tbl, "소재")
     styled_creative["_link"] = styled_creative["소재"].map(link_map).fillna("")
+    # 맨 끝에 '소재 링크' 열 추가 — 표를 복사해 노션에 붙여도 링크가 텍스트로 따라가게 함
+    # (소재명에 걸린 하이퍼링크는 _link로 그대로 유지)
+    styled_creative["소재 링크"] = styled_creative["_link"]
     render_table_paged(styled_creative, "creative", link_col="_link")
