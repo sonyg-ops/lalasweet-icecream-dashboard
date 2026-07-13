@@ -2,7 +2,7 @@ name: 라라스윗 빙과 일일 광고 데이터 수집
 
 on:
   schedule:
-    - cron: '0 23 * * *'  # 매일 08:00 KST (= 전날 23:00 UTC)
+    - cron: '0 22 * * *'  # 매일 07:00 KST (= 전날 22:00 UTC)
   workflow_dispatch:
     inputs:
       start_date:
