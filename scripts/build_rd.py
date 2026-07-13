@@ -50,8 +50,13 @@ def parse_ad_name(ad_name: str) -> dict:
     """
     result = {col: "" for col in PARSE_COLS}
 
-    if not isinstance(ad_name, str) or not ad_name.startswith("["):
+    if not isinstance(ad_name, str):
         return result
+    # 소재명 앞에 "(운영X) " 같은 접두어가 붙어도 파싱되도록 첫 '['부터 사용
+    b = ad_name.find("[")
+    if b == -1:
+        return result
+    ad_name = ad_name[b:]
 
     parts = ad_name.split("_")
     if len(parts) < 3:
