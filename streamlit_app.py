@@ -162,8 +162,9 @@ def render_pinned_total_table(df: pd.DataFrame, link_col: str = None) -> None:
         "rows.sort(function(a,b){"
         "var va=a.cells[col].textContent.replace(/[\\u20a9%,\\s]/g,'');"
         "var vb=b.cells[col].textContent.replace(/[\\u20a9%,\\s]/g,'');"
-        "var na=parseFloat(va),nb=parseFloat(vb);"
-        "if(!isNaN(na)&&!isNaN(nb))return asc?na-nb:nb-na;"
+        # 문자열 전체가 순수 숫자일 때만 숫자 정렬 (날짜 '2026-07-14'가 2026으로 오판되는 것 방지)
+        "var num=/^-?\\d+(\\.\\d+)?$/;"
+        "if(num.test(va)&&num.test(vb)){var na=parseFloat(va),nb=parseFloat(vb);return asc?na-nb:nb-na;}"
         "return asc?va.localeCompare(vb,'ko'):vb.localeCompare(va,'ko');"
         "});"
         "rows.forEach(function(r){tbody.appendChild(r);});"
@@ -795,11 +796,34 @@ if sel_marketer:
 if sel_designer:
     mask &= df["PD/디자이너"].astype(str).isin(sel_designer)
 fdf = df[mask].copy()
-# 월별 추이: 연도 필터만 적용
-mask_year_only = pd.Series([True] * len(df), index=df.index)
+# 월별 추이: 월·주·일(날짜성) 필터만 무시하고 나머지(매체·광고유형·제품군·제품코드 등)는 모두 적용
+# → 월 하나만 골라도 12개월이 다 보이게 하되, 제품코드 등 다른 필터는 정상 반영
+mask_month_trend = pd.Series([True] * len(df), index=df.index)
 if sel_years:
-    mask_year_only &= df["날짜"].dt.year.isin(sel_years)
-fdf_year_only = df[mask_year_only].copy()
+    mask_month_trend &= df["날짜"].dt.year.isin(sel_years)
+if sel_media:
+    mask_month_trend &= df["매체"].astype(str).isin(sel_media)
+if sel_adtype:
+    mask_month_trend &= df["영상/이미지 구분"].astype(str).isin(sel_adtype)
+if sel_prodgroup:
+    mask_month_trend &= df["제품군"].astype(str).isin(sel_prodgroup)
+if sel_prodcode:
+    mask_month_trend &= df["제품코드"].astype(str).isin(sel_prodcode)
+if sel_campaign:
+    mask_month_trend &= df["캠페인명"].astype(str).isin(sel_campaign)
+if sel_adset:
+    mask_month_trend &= df["광고그룹명"].astype(str).isin(sel_adset)
+if sel_creative:
+    mask_month_trend &= df["소재명"].astype(str).isin(sel_creative)
+if sel_format:
+    mask_month_trend &= df["대분류 포맷"].astype(str).isin(sel_format)
+if sel_deroul:
+    mask_month_trend &= df["소분류 연출"].astype(str).isin(sel_deroul)
+if sel_marketer:
+    mask_month_trend &= df["마케터"].astype(str).isin(sel_marketer)
+if sel_designer:
+    mask_month_trend &= df["PD/디자이너"].astype(str).isin(sel_designer)
+fdf_year_only = df[mask_month_trend].copy()
 if fdf.empty:
     st.warning("필터 조건에 맞는 데이터가 없어요. 필터를 조정해주세요.")
     st.stop()
