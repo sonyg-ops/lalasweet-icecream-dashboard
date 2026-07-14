@@ -710,7 +710,7 @@ max_date = df["날짜"].max().strftime("%Y-%m-%d")
 # 사이드바
 # =============================================================
 with st.sidebar:
-    st.markdown("## 🍦 라라스윗 빙과 전환광고")
+    st.markdown("## 🍦 라라스윗 빙과 전환/인지광고")
     st.markdown("---")
     _cur_year  = date.today().year
     _cur_month = f"{date.today().month}월"
