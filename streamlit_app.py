@@ -41,6 +41,29 @@ st.markdown("""
     div[data-testid="stTabs"] button { font-size: 0.9rem; font-weight: 500; }
     .stDataFrame { border-radius: 8px; overflow: hidden; }
     footer { visibility: hidden; }
+    /* 최상단 전환/인지 목적 토글을 큰 버튼처럼 (view_purpose 라디오만) */
+    .st-key-view_purpose div[role="radiogroup"] { display:flex; gap:10px; margin-bottom:4px; }
+    .st-key-view_purpose div[role="radiogroup"] > label {
+        flex:1; display:flex; justify-content:center; align-items:center;
+        min-height:56px; padding:10px 14px; margin:0;
+        border:2px solid #e6e6e6; border-radius:14px; background:#fafafa;
+        color:#999; cursor:pointer; transition:all .15s ease;
+    }
+    .st-key-view_purpose div[role="radiogroup"] > label:hover { border-color:#d0d0d0; background:#fff; }
+    /* 라디오 동그라미 숨김 */
+    .st-key-view_purpose div[role="radiogroup"] > label > div:first-child { display:none !important; }
+    .st-key-view_purpose div[role="radiogroup"] > label p {
+        font-size:1.05rem !important; font-weight:700 !important; color:inherit !important; margin:0;
+    }
+    /* 선택됨 — 전환(첫 번째)=주황, 인지(두 번째)=파랑 */
+    .st-key-view_purpose div[role="radiogroup"] > label:first-child:has(input:checked) {
+        border-color:#F4845F; background:#FFF0E6; color:#B84A00;
+        box-shadow:0 3px 10px rgba(244,132,95,.28);
+    }
+    .st-key-view_purpose div[role="radiogroup"] > label:last-child:has(input:checked) {
+        border-color:#7BAFD4; background:#EAF3FA; color:#2C6E9B;
+        box-shadow:0 3px 10px rgba(123,175,212,.28);
+    }
 </style>
 """, unsafe_allow_html=True)
 # --- 브랜드 컬러 ---
