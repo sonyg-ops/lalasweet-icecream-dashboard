@@ -317,7 +317,7 @@ def style_awareness(df: pd.DataFrame, first_col: str) -> pd.DataFrame:
     s = df.copy()
     s["광고비"]     = s["광고비"].apply(lambda x: f"₩{int(x):,}")
     s["ThruPlay"]  = s["ThruPlay"].apply(lambda x: f"{int(x):,}")
-    s["결과당비용"] = s["결과당비용"].apply(lambda x: f"₩{int(x):,}")
+    s["결과당비용"] = s["결과당비용"].apply(lambda x: f"₩{x:,.1f}")
     order = [first_col, "광고비", "ThruPlay", "결과당비용"]
     return s[[c for c in order if c in s.columns]]
 def perf_row(label: str, d: pd.DataFrame, key_col: str = "구분") -> dict:
@@ -387,14 +387,14 @@ def daily_table_aw(d: pd.DataFrame) -> pd.DataFrame:
         "일":        grp["date"].astype(str),
         "광고비":    grp["spend"].apply(lambda x: f"₩{int(x):,}"),
         "ThruPlay":  grp["thru"].apply(lambda x: f"{int(x):,}"),
-        "결과당비용": grp["cpr"].apply(lambda x: f"₩{int(x):,}"),
+        "결과당비용": grp["cpr"].apply(lambda x: f"₩{x:,.1f}"),
     })
     ts, tt = grp["spend"].sum(), grp["thru"].sum()
     total = pd.DataFrame([{
         "일":        "총합계",
         "광고비":    f"₩{int(ts):,}",
         "ThruPlay":  f"{int(tt):,}",
-        "결과당비용": f"₩{int(ts/tt):,}" if tt > 0 else "0",
+        "결과당비용": f"₩{ts/tt:,.1f}" if tt > 0 else "0",
     }])
     return pd.concat([tbl, total], ignore_index=True)[["일", "광고비", "ThruPlay", "결과당비용"]]
 def valid_opts(df: pd.DataFrame, col: str) -> list:
@@ -444,7 +444,7 @@ def render_kpi_aw(k: dict) -> None:
     c1.metric("💰 광고비",     fmt_krw(k["spend"]))
     c2.metric("👁 노출",       fmt_num(k["imp"]))
     c3.metric("▶ ThruPlay",   fmt_num(k["thru"]))
-    c4.metric("💵 결과당비용", fmt_krw(k["cpr"]))
+    c4.metric("💵 결과당비용", f"₩{k['cpr']:,.1f}")
 # =============================================================
 # 데이터 업데이트 (GitHub Actions 트리거)
 # =============================================================
@@ -725,7 +725,7 @@ with st.sidebar:
         df_scope = df_scope[_scope_wk.isin(sel_weeks)]
     if sel_dates:
         df_scope = df_scope[df_scope["날짜"].dt.strftime("%Y-%m-%d").isin(sel_dates)]
-    st.caption("↓ 포맷·연출·Meta 구조는 위에서 고른 기간·광고유형 기준으로 좁혀져요")
+    st.caption("↓ 포맷·연출·Meta/TikTok 구조는 위에서 고른 기간·광고유형 기준으로 좁혀져요")
     st.markdown("**📺 매체**")
     sel_media = st.multiselect("매체", valid_opts(df, "매체"),
                                placeholder="전체", label_visibility="collapsed")
@@ -764,7 +764,7 @@ with st.sidebar:
               on_click=_reset_keys, args=(["f_format", "f_deroul"],),
               use_container_width=True)
     st.markdown("---")
-    st.markdown("**🅜 Meta 구조**")
+    st.markdown("**🅜 Meta/TikTok 구조**")
     st.caption("↓ 캠페인부터 고르면 아래 목록이 좁혀져요")
     # 캠페인
     st.markdown("**📢 캠페인**")
@@ -789,7 +789,7 @@ with st.sidebar:
         st.session_state["f_creative"] = [x for x in st.session_state["f_creative"] if x in creative_opts]
     sel_creative = st.multiselect("소재", creative_opts, placeholder="전체",
                                   key="f_creative", label_visibility="collapsed")
-    st.button("↩️ Meta 구조 초기화", key="rst_meta",
+    st.button("↩️ Meta/TikTok 구조 초기화", key="rst_meta",
               on_click=_reset_keys, args=(["f_campaign", "f_adset", "f_creative"],),
               use_container_width=True)
     st.markdown("---")
@@ -993,33 +993,7 @@ with tab1:
 with tab2:
     render_kpi_view(kpi)
     st.markdown("---")
-    # --- 포맷·연출별 성과 (항상 표시. 좌측 필터를 고르면 그 범위로 좁혀짐) ---
-    st.markdown("**🎨 포맷·연출별 성과**")
-    st.caption("좌측 필터를 선택하면 그 범위로 좁혀집니다 (미선택 시 전체)")
-    fdf_fd = fdf.copy()
-    for _c in ["대분류 포맷", "소분류 연출"]:
-        fdf_fd[_c] = (fdf_fd[_c].fillna("(미지정)").astype(str).str.strip()
-                      .replace({"": "(미지정)", "nan": "(미지정)",
-                                "None": "(미지정)", "<NA>": "(미지정)"}))
-    fmt_tbl = filter_min_spend(
-        sort_summary_by_spend(build_summary_table(fdf_fd, "대분류 포맷"), "대분류 포맷"), min_spend)
-    st.markdown("**🧩 대분류 포맷별 성과**")
-    render_table_paged(STYLE(fmt_tbl, "대분류 포맷"), "fmt")
-    der_tbl = filter_min_spend(
-        sort_summary_by_spend(build_summary_table(fdf_fd, "소분류 연출"), "소분류 연출"), min_spend)
-    st.markdown("**🎭 소분류 연출별 성과**")
-    render_table_paged(STYLE(der_tbl, "소분류 연출"), "der")
-    # --- Meta 구조별 성과 (항상 표시) ---
-    st.markdown("---")
-    st.markdown("**🅜 Meta 구조별 성과**")
-    st.caption("좌측 Meta 구조 필터를 선택하면 그 범위로 좁혀집니다 (미선택 시 전체)")
-    # 광고세트별
-    adset_tbl = filter_min_spend(
-        sort_summary_by_spend(build_summary_table(fdf, "광고그룹명"), "광고그룹명"), min_spend)
-    adset_tbl = adset_tbl.rename(columns={"광고그룹명": "광고세트"})
-    st.markdown("**🗂 광고세트별 성과**")
-    render_table_paged(STYLE(adset_tbl, "광고세트"), "adset")
-    # 소재별 (소재명 클릭 → 인스타 광고페이지)
+    # --- 소재별 성과 (가장 상단에 표시. 소재명 클릭 → 인스타 광고페이지) ---
     creative_tbl = filter_min_spend(
         sort_summary_by_spend(build_summary_table(fdf, "소재명"), "소재명"), min_spend)
     creative_tbl = creative_tbl.rename(columns={"소재명": "소재"})
@@ -1039,3 +1013,30 @@ with tab2:
     # (소재명에 걸린 하이퍼링크는 _link로 그대로 유지)
     styled_creative["소재 링크"] = styled_creative["_link"]
     render_table_paged(styled_creative, "creative", link_col="_link")
+    st.markdown("---")
+    # --- 포맷·연출별 성과 (항상 표시. 좌측 필터를 고르면 그 범위로 좁혀짐) ---
+    st.markdown("**🎨 포맷·연출별 성과**")
+    st.caption("좌측 필터를 선택하면 그 범위로 좁혀집니다 (미선택 시 전체)")
+    fdf_fd = fdf.copy()
+    for _c in ["대분류 포맷", "소분류 연출"]:
+        fdf_fd[_c] = (fdf_fd[_c].fillna("(미지정)").astype(str).str.strip()
+                      .replace({"": "(미지정)", "nan": "(미지정)",
+                                "None": "(미지정)", "<NA>": "(미지정)"}))
+    fmt_tbl = filter_min_spend(
+        sort_summary_by_spend(build_summary_table(fdf_fd, "대분류 포맷"), "대분류 포맷"), min_spend)
+    st.markdown("**🧩 대분류 포맷별 성과**")
+    render_table_paged(STYLE(fmt_tbl, "대분류 포맷"), "fmt")
+    der_tbl = filter_min_spend(
+        sort_summary_by_spend(build_summary_table(fdf_fd, "소분류 연출"), "소분류 연출"), min_spend)
+    st.markdown("**🎭 소분류 연출별 성과**")
+    render_table_paged(STYLE(der_tbl, "소분류 연출"), "der")
+    # --- Meta 구조별 성과 (항상 표시) ---
+    st.markdown("---")
+    st.markdown("**🅜 Meta/TikTok 구조별 성과**")
+    st.caption("좌측 Meta/TikTok 구조 필터를 선택하면 그 범위로 좁혀집니다 (미선택 시 전체)")
+    # 광고세트별
+    adset_tbl = filter_min_spend(
+        sort_summary_by_spend(build_summary_table(fdf, "광고그룹명"), "광고그룹명"), min_spend)
+    adset_tbl = adset_tbl.rename(columns={"광고그룹명": "광고세트"})
+    st.markdown("**🗂 광고세트별 성과**")
+    render_table_paged(STYLE(adset_tbl, "광고세트"), "adset")
