@@ -3,7 +3,10 @@
 TikTok 광고 데이터 수집 (빙과본부 대시보드 전용, GitHub Actions 전용)
 - 매일 실행 (주말 포함)
 - 자격증명: 환경 변수 (GitHub Secrets)
-- 수집 대상: 빙과 제품만 (제과는 제외). 단 '인지'(인지도) 캠페인은 전환 대시보드 특성상 계속 제외
+- 수집 대상: 빙과 제품만 (제과는 제외)
+- 광고목적(전환/인지): 광고주 ID 1개 안에서 캠페인명에 '인지'가 들어가면 인지, 아니면 전환
+  → 메타(meta_api.py collect_account)처럼 각 행에 '광고목적' 태그 + thruplay 출력
+  → 인지는 결과당비용(=광고비/결과) 표시용으로, TikTok 네이티브 'result'(결과)를 thruplay 자리에 담음
 - 지출(spend) = 0인 행 제외
 - 출력: data/tiktok_raw_{since}_{until}.csv
 - 상태 파일: data/tiktok_last_success.txt
@@ -25,6 +28,17 @@ if not ACCESS_TOKEN or not ADVERTISER_ID:
 BASE     = "https://business-api.tiktok.com/open_api/v1.3"
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
+
+# 인지 광고 '결과' 지표: 사장님이 커스텀 설정한 '15초 이상 조회수'를 잡는 값.
+# TikTok 네이티브 'result'(결과)는 캠페인 최적화 목표(=15초 조회)를 그대로 반영하므로
+# 메타에서 optimization_goal로 결과를 잡는 것과 같은 방식이다.
+# build_rd.py 가 인지 행에서 결과당비용 = 광고비 / thruplay 로 계산하므로 이 값을 thruplay 자리에 담는다.
+# ★ 만약 첫 실전 수집에서 이 지표가 오류(code 40002 '지표 없음' 등)나면 "video_watched_6s"(6초 조회)로 교체.
+AWARENESS_METRIC = "result"
+
+def purpose_of(campaign_name):
+    """캠페인명에 '인지'가 들어가면 인지, 아니면 전환 (광고주 ID 1개 안에서 구분)."""
+    return "인지" if "인지" in (campaign_name or "") else "전환"
 
 LOG_PATH   = os.path.join(DATA_DIR, "tiktok_run.log")
 STATE_PATH = os.path.join(DATA_DIR, "tiktok_last_success.txt")
@@ -144,6 +158,7 @@ while current <= until:
             "metrics":       json.dumps([
                 "campaign_name", "adgroup_name", "ad_name",
                 "spend", "impressions", "clicks", "conversion",
+                AWARENESS_METRIC,  # 인지 광고 결과(=15초 조회) — 인지 행의 thruplay 자리에 사용
             ]),
             "data_level": "AUCTION_AD",
             "start_date": date_str,
@@ -176,9 +191,7 @@ while current <= until:
     def _is_bingwa(m):
         cn = m.get("campaign_name", "")
         an = m.get("ad_name", "")
-        # '인지'(인지도) 캠페인은 전환 대시보드 특성상 제외
-        if "인지" in cn:
-            return False
+        # 전환·인지 모두 수집 (광고목적은 아래 출력 단계에서 캠페인명으로 태그)
         if any(kw in cn for kw in _BINGWA_KW):
             return True
         if any(code in an for code in _BINGWA_CODES):
@@ -194,6 +207,12 @@ while current <= until:
     current += datetime.timedelta(days=1)
 
 # ── spend = 0 행 제외 후 CSV 저장 ─────────────────────────────
+def _to_int(v):
+    try:
+        return int(float(v)) if v not in (None, "") else 0
+    except (TypeError, ValueError):
+        return 0
+
 out = []
 for r in all_rows:
     m     = r.get("metrics", {})
@@ -201,15 +220,27 @@ for r in all_rows:
     spend = float(m.get("spend", 0) or 0)
     if spend == 0:
         continue
+    cn      = m.get("campaign_name", "")
+    purpose = purpose_of(cn)
+    # 인지: 결과(15초 조회)를 thruplay 자리에 담고 전환수는 비움(0) → build_rd가 결과당비용 계산
+    # 전환: thruplay 0, 전환수=conversion
+    if purpose == "인지":
+        thruplay    = _to_int(m.get(AWARENESS_METRIC, 0))
+        conversions = 0
+    else:
+        thruplay    = 0
+        conversions = _to_int(m.get("conversion", 0))
     out.append({
         "date":          d.get("stat_time_day", "")[:10],
-        "campaign_name": m.get("campaign_name", ""),
+        "campaign_name": cn,
         "adset_name":    m.get("adgroup_name", ""),
         "ad_name":       m.get("ad_name", ""),
-        "impressions":   int(float(m.get("impressions", 0) or 0)),
-        "clicks":        int(float(m.get("clicks", 0) or 0)),
+        "impressions":   _to_int(m.get("impressions", 0)),
+        "clicks":        _to_int(m.get("clicks", 0)),
         "spend":         spend,
-        "conversions":   int(float(m.get("conversion", 0) or 0)),
+        "conversions":   conversions,
+        "thruplay":      thruplay,
+        "광고목적":      purpose,
     })
 
 log(f"spend > 0 행: {len(out)}개")
@@ -222,7 +253,7 @@ with open(out_path, "w", encoding="utf-8-sig", newline="") as f:
         writer.writerows(out)
     else:
         # 지출이 없는 날에도 파일 생성 (빈 헤더)
-        f.write("date,campaign_name,adset_name,ad_name,impressions,clicks,spend,conversions\n")
+        f.write("date,campaign_name,adset_name,ad_name,impressions,clicks,spend,conversions,thruplay,광고목적\n")
 
 if not IS_BACKFILL:
     with open(STATE_PATH, "w", encoding="utf-8") as f:
