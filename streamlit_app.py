@@ -254,27 +254,34 @@ def render_table_paged(df: pd.DataFrame, key: str, page_size: int = 10, link_col
         c2.button("접기", key=f"less_{key}", on_click=_page_less, args=(sk, page_size))
     c3.caption(f"상위 {shown} / 전체 {n}개 표시")
 def build_summary_table(data: pd.DataFrame, group_col: str, label_fn=None) -> pd.DataFrame:
+    data = data.copy()
+    if "ThruPlay" not in data.columns:
+        data["ThruPlay"] = 0
     grp = (
         data.groupby(group_col)
         .agg(광고비=("광고비 (KRW)", "sum"), 노출=("노출", "sum"),
-             링크클릭=("클릭", "sum"), 구매=("전환수", "sum"))
+             링크클릭=("클릭", "sum"), 구매=("전환수", "sum"),
+             ThruPlay=("ThruPlay", "sum"))
         .reset_index()
     )
     grp["CTR"] = (grp["링크클릭"] / grp["노출"].replace(0, float("nan")) * 100).fillna(0)
     grp["CPC"] = (grp["광고비"] / grp["링크클릭"].replace(0, float("nan"))).fillna(0)
     grp["CVR"] = (grp["구매"] / grp["링크클릭"].replace(0, float("nan")) * 100).fillna(0)
     grp["CPA"] = (grp["광고비"] / grp["구매"].replace(0, float("nan"))).fillna(0)
-    tot = grp[["광고비", "노출", "링크클릭", "구매"]].sum()
+    grp["결과당비용"] = (grp["광고비"] / grp["ThruPlay"].replace(0, float("nan"))).fillna(0)
+    tot = grp[["광고비", "노출", "링크클릭", "구매", "ThruPlay"]].sum()
     grp = pd.concat([grp, pd.DataFrame([{
         group_col:  "총합계",
         "광고비":   tot["광고비"],
         "노출":     tot["노출"],
         "링크클릭": tot["링크클릭"],
         "구매":     tot["구매"],
+        "ThruPlay": tot["ThruPlay"],
         "CTR": tot["링크클릭"] / tot["노출"] * 100 if tot["노출"] > 0 else 0,
         "CPC": tot["광고비"] / tot["링크클릭"] if tot["링크클릭"] > 0 else 0,
         "CVR": tot["구매"] / tot["링크클릭"] * 100 if tot["링크클릭"] > 0 else 0,
         "CPA": tot["광고비"] / tot["구매"] if tot["구매"] > 0 else 0,
+        "결과당비용": tot["광고비"] / tot["ThruPlay"] if tot["ThruPlay"] > 0 else 0,
     }])], ignore_index=True)
     if label_fn:
         grp[group_col] = grp[group_col].apply(lambda x: label_fn(x) if x != "총합계" else x)
@@ -304,6 +311,14 @@ def style_summary(df: pd.DataFrame, first_col: str) -> pd.DataFrame:
     s["CPA"]     = s["CPA"].apply(lambda x: f"{int(x):,}")
     s = s.rename(columns={"링크클릭": "링크 클릭"})
     order = [first_col, "광고비", "CPA", "CPC", "CVR"]
+    return s[[c for c in order if c in s.columns]]
+def style_awareness(df: pd.DataFrame, first_col: str) -> pd.DataFrame:
+    """인지광고 표: 구분 · 광고비 · ThruPlay · 결과당비용"""
+    s = df.copy()
+    s["광고비"]     = s["광고비"].apply(lambda x: f"₩{int(x):,}")
+    s["ThruPlay"]  = s["ThruPlay"].apply(lambda x: f"{int(x):,}")
+    s["결과당비용"] = s["결과당비용"].apply(lambda x: f"₩{int(x):,}")
+    order = [first_col, "광고비", "ThruPlay", "결과당비용"]
     return s[[c for c in order if c in s.columns]]
 def perf_row(label: str, d: pd.DataFrame, key_col: str = "구분") -> dict:
     s = d["광고비 (KRW)"].sum()
@@ -359,6 +374,29 @@ def daily_table(d: pd.DataFrame) -> pd.DataFrame:
     out = pd.concat([tbl, total], ignore_index=True)
     order = ["일", "광고비", "CPA", "CPC", "CVR"]
     return out[order]
+def daily_table_aw(d: pd.DataFrame) -> pd.DataFrame:
+    """인지광고 일별 표: 일 · 광고비 · ThruPlay · 결과당비용"""
+    grp = (
+        d.groupby(d["날짜"].dt.date)
+        .agg(spend=("광고비 (KRW)", "sum"), thru=("ThruPlay", "sum"))
+        .reset_index().rename(columns={"날짜": "date"})
+        .sort_values("date")
+    )
+    grp["cpr"] = (grp["spend"] / grp["thru"].replace(0, float("nan"))).fillna(0)
+    tbl = pd.DataFrame({
+        "일":        grp["date"].astype(str),
+        "광고비":    grp["spend"].apply(lambda x: f"₩{int(x):,}"),
+        "ThruPlay":  grp["thru"].apply(lambda x: f"{int(x):,}"),
+        "결과당비용": grp["cpr"].apply(lambda x: f"₩{int(x):,}"),
+    })
+    ts, tt = grp["spend"].sum(), grp["thru"].sum()
+    total = pd.DataFrame([{
+        "일":        "총합계",
+        "광고비":    f"₩{int(ts):,}",
+        "ThruPlay":  f"{int(tt):,}",
+        "결과당비용": f"₩{int(ts/tt):,}" if tt > 0 else "0",
+    }])
+    return pd.concat([tbl, total], ignore_index=True)[["일", "광고비", "ThruPlay", "결과당비용"]]
 def valid_opts(df: pd.DataFrame, col: str) -> list:
     grp = df.groupby(col)["노출"].sum()
     return sorted([str(v) for v, imp in grp.items()
@@ -383,9 +421,11 @@ def calc_kpi(d: pd.DataFrame) -> dict:
     imp   = d["노출"].sum()
     clk   = d["클릭"].sum()
     conv  = d["전환수"].sum()
-    return dict(spend=spend, imp=imp, clk=clk, conv=conv,
+    thru  = d["ThruPlay"].sum() if "ThruPlay" in d.columns else 0
+    return dict(spend=spend, imp=imp, clk=clk, conv=conv, thru=thru,
                 ctr=clk / imp * 100 if imp > 0 else 0,
-                cpa=spend / conv if conv > 0 else 0)
+                cpa=spend / conv if conv > 0 else 0,
+                cpr=spend / thru if thru > 0 else 0)   # 결과당비용 = ThruPlay당 비용
 def fmt_krw(v: float) -> str:
     return f"₩{int(v):,}"
 def fmt_num(v: float) -> str:
@@ -398,6 +438,13 @@ def render_kpi(k: dict) -> None:
     c4.metric("🛒 전환수", fmt_num(k["conv"]))
     c5.metric("📈 CTR",    f"{k['ctr']:.2f}%")
     c6.metric("🎯 CPA",    fmt_krw(k["cpa"]))
+def render_kpi_aw(k: dict) -> None:
+    """인지광고 KPI: 광고비 · 노출 · ThruPlay · 결과당비용(ThruPlay당 비용)"""
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("💰 광고비",     fmt_krw(k["spend"]))
+    c2.metric("👁 노출",       fmt_num(k["imp"]))
+    c3.metric("▶ ThruPlay",   fmt_num(k["thru"]))
+    c4.metric("💵 결과당비용", fmt_krw(k["cpr"]))
 # =============================================================
 # 데이터 업데이트 (GitHub Actions 트리거)
 # =============================================================
@@ -565,7 +612,7 @@ def load_data() -> pd.DataFrame:
     df = pd.DataFrame(records)
     df["날짜"] = pd.to_datetime(df["날짜"], errors="coerce")
     for col in ["광고비 (KRW)", "노출", "클릭", "전환수", "CTR (%)", "CPA (KRW)",
-                "CPC (KRW)", "영상조회 3초+", "ThruPlay"]:
+                "CPC (KRW)", "영상조회 3초+", "ThruPlay", "결과당비용"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
     df = df.dropna(subset=["날짜"])
@@ -574,6 +621,15 @@ def load_data() -> pd.DataFrame:
     df["일"] = df["날짜"].dt.day.astype(str).str.zfill(2)
     if "제품코드" in df.columns:
         df["제품군"] = df["제품코드"].astype(str).str.strip().map(PRODUCT_GROUP).fillna("(기타)")
+    # 광고목적: 없거나 빈 값(과거 데이터·틱톡 등)은 전환으로 간주
+    if "광고목적" in df.columns:
+        df["광고목적"] = (df["광고목적"].astype(str).str.strip()
+                          .replace({"": "전환", "nan": "전환", "None": "전환", "<NA>": "전환"}))
+    else:
+        df["광고목적"] = "전환"
+    for _c in ["ThruPlay", "결과당비용"]:
+        if _c not in df.columns:
+            df[_c] = 0
     return df.sort_values("날짜")
 
 
@@ -760,9 +816,19 @@ with st.sidebar:
         st.rerun()
     st.caption(f"최근 업데이트: {max_date}")
 # =============================================================
+# 광고 목적 뷰 (전환광고 / 인지광고) — 지표 세트를 통째로 바꾼다
+# =============================================================
+_purpose_labels = {"전환": "🛒 전환광고 (자사몰 구매)", "인지": "📣 인지광고 (동영상 조회)"}
+view_purpose = st.radio(
+    "광고 목적", ["전환", "인지"], horizontal=True,
+    format_func=lambda p: _purpose_labels[p],
+    key="view_purpose", label_visibility="collapsed",
+)
+IS_AW = (view_purpose == "인지")
+# =============================================================
 # 필터 적용
 # =============================================================
-mask = pd.Series([True] * len(df), index=df.index)
+mask = df["광고목적"].astype(str) == view_purpose
 if sel_years:
     mask &= df["날짜"].dt.year.isin(sel_years)
 if sel_months:
@@ -798,7 +864,7 @@ if sel_designer:
 fdf = df[mask].copy()
 # 월별 추이: 월·주·일(날짜성) 필터만 무시하고 나머지(매체·광고유형·제품군·제품코드 등)는 모두 적용
 # → 월 하나만 골라도 12개월이 다 보이게 하되, 제품코드 등 다른 필터는 정상 반영
-mask_month_trend = pd.Series([True] * len(df), index=df.index)
+mask_month_trend = df["광고목적"].astype(str) == view_purpose
 if sel_years:
     mask_month_trend &= df["날짜"].dt.year.isin(sel_years)
 if sel_media:
@@ -828,6 +894,8 @@ if fdf.empty:
     st.warning("필터 조건에 맞는 데이터가 없어요. 필터를 조정해주세요.")
     st.stop()
 kpi = calc_kpi(fdf)
+STYLE = style_awareness if IS_AW else style_summary   # 표 스타일: 목적별 컬럼 세트
+render_kpi_view = render_kpi_aw if IS_AW else render_kpi
 # =============================================================
 # 탭
 # =============================================================
@@ -837,7 +905,7 @@ render_update_buttons()
 tab1, tab2 = st.tabs(["📊 전체 요약", "🧩 분류별 성과"])
 # --- TAB 1: 전체 요약 ---
 with tab1:
-    render_kpi(kpi)
+    render_kpi_view(kpi)
     st.markdown("---")
     daily_prod = (
         fdf.groupby([fdf["날짜"].dt.date, "제품코드"])
@@ -848,20 +916,22 @@ with tab1:
     daily_cpa = (
         fdf.groupby(fdf["날짜"].dt.date)
         .agg(spend=("광고비 (KRW)", "sum"), imp=("노출", "sum"),
-             clk=("클릭", "sum"), conv=("전환수", "sum"))
+             clk=("클릭", "sum"), conv=("전환수", "sum"), thru=("ThruPlay", "sum"))
         .reset_index().rename(columns={"날짜": "date"})
     )
     daily_cpa["CPA"] = (daily_cpa["spend"] / daily_cpa["conv"].replace(0, float("nan"))).fillna(0)
     daily_cpa["CTR"] = (daily_cpa["clk"] / daily_cpa["imp"].replace(0, float("nan")) * 100).fillna(0)
     daily_cpa["CPC"] = (daily_cpa["spend"] / daily_cpa["clk"].replace(0, float("nan"))).fillna(0)
     daily_cpa["CVR"] = (daily_cpa["conv"] / daily_cpa["clk"].replace(0, float("nan")) * 100).fillna(0)
+    daily_cpa["결과당비용"] = (daily_cpa["spend"] / daily_cpa["thru"].replace(0, float("nan"))).fillna(0)
     prod_codes_sorted = (
         daily_prod.groupby("제품코드")["spend"].sum()
         .sort_values(ascending=False).index.tolist()
     )
+    _line_metric = "결과당비용" if IS_AW else "CPA"   # 인지는 결과당비용, 전환은 CPA
     hdr_col, btn_col = st.columns([6, 1])
     with hdr_col:
-        st.markdown("**📊 일별 광고비 & CPA**")
+        st.markdown(f"**📊 일별 광고비 & {_line_metric}**")
     with btn_col:
         view_mode = st.radio("보기", ["테이블", "그래프"], horizontal=True,
                              label_visibility="collapsed", key="daily_view_mode")
@@ -872,16 +942,16 @@ with tab1:
             fig.add_bar(x=d["date"], y=d["spend_man"], name=str(pc),
                         marker_color=BAR_PALETTE[i % len(BAR_PALETTE)], yaxis="y1",
                         hovertemplate=f"<b>{pc}</b><br>날짜: %{{x}}<br>광고비: %{{y:,.0f}}만원<extra></extra>")
-        fig.add_scatter(x=daily_cpa["date"], y=daily_cpa["CPA"],
-                        name="CPA", mode="lines+markers",
+        fig.add_scatter(x=daily_cpa["date"], y=daily_cpa[_line_metric],
+                        name=_line_metric, mode="lines+markers",
                         line=dict(color="#9B8EC4", width=2.5), marker=dict(size=6), yaxis="y2",
-                        hovertemplate="날짜: %{x}<br>CPA: %{y:,.0f}원<extra></extra>")
+                        hovertemplate="날짜: %{x}<br>" + _line_metric + ": %{y:,.0f}원<extra></extra>")
         fig.update_layout(
             barmode="stack",
             xaxis=dict(title=""),
             yaxis=dict(title="광고비", ticksuffix="만원", tickformat=",",
                        showgrid=True, gridcolor="#f0f0f0"),
-            yaxis2=dict(title="CPA (원)", overlaying="y", side="right",
+            yaxis2=dict(title=f"{_line_metric} (원)", overlaying="y", side="right",
                         showgrid=False, tickformat=",", ticksuffix="원"),
             legend=dict(orientation="h", y=1.10, font=dict(size=11)),
             plot_bgcolor="white", paper_bgcolor="white",
@@ -889,7 +959,7 @@ with tab1:
         )
         st.plotly_chart(fig, use_container_width=True)
     else:
-        render_pinned_total_table(daily_table(fdf))
+        render_pinned_total_table(daily_table_aw(fdf) if IS_AW else daily_table(fdf))
     col_a, col_b = st.columns(2)
     with col_a:
         by_adtype = fdf.groupby("영상/이미지 구분")["광고비 (KRW)"].sum().reset_index()
@@ -910,7 +980,7 @@ with tab1:
     fdf_m["월"] = fdf_m["날짜"].dt.month
     monthly_tbl = build_summary_table(fdf_m, "월", label_fn=lambda x: f"{int(x):02d}")
     st.markdown("**📅 월별 데이터 추이**")
-    render_pinned_total_table(style_summary(monthly_tbl, "월"))
+    render_pinned_total_table(STYLE(monthly_tbl, "월"))
     fdf_w = fdf.copy()
     fdf_w["week_start"] = fdf_w["날짜"].dt.to_period("W").apply(lambda p: p.start_time.date())
     recent_weeks = sorted(fdf_w["week_start"].unique())[-4:]
@@ -918,10 +988,10 @@ with tab1:
     weekly_tbl = build_summary_table(fdf_w4, "week_start", label_fn=week_label)
     weekly_tbl = weekly_tbl.rename(columns={"week_start": "주차"})
     st.markdown("**📆 주차별 성과 (최근 4주)**")
-    render_pinned_total_table(style_summary(weekly_tbl, "주차"))
+    render_pinned_total_table(STYLE(weekly_tbl, "주차"))
 # --- TAB 2: 분류별 성과 ---
 with tab2:
-    render_kpi(kpi)
+    render_kpi_view(kpi)
     st.markdown("---")
     # --- 포맷·연출별 성과 (항상 표시. 좌측 필터를 고르면 그 범위로 좁혀짐) ---
     st.markdown("**🎨 포맷·연출별 성과**")
@@ -934,11 +1004,11 @@ with tab2:
     fmt_tbl = filter_min_spend(
         sort_summary_by_spend(build_summary_table(fdf_fd, "대분류 포맷"), "대분류 포맷"), min_spend)
     st.markdown("**🧩 대분류 포맷별 성과**")
-    render_table_paged(style_summary(fmt_tbl, "대분류 포맷"), "fmt")
+    render_table_paged(STYLE(fmt_tbl, "대분류 포맷"), "fmt")
     der_tbl = filter_min_spend(
         sort_summary_by_spend(build_summary_table(fdf_fd, "소분류 연출"), "소분류 연출"), min_spend)
     st.markdown("**🎭 소분류 연출별 성과**")
-    render_table_paged(style_summary(der_tbl, "소분류 연출"), "der")
+    render_table_paged(STYLE(der_tbl, "소분류 연출"), "der")
     # --- Meta 구조별 성과 (항상 표시) ---
     st.markdown("---")
     st.markdown("**🅜 Meta 구조별 성과**")
@@ -948,7 +1018,7 @@ with tab2:
         sort_summary_by_spend(build_summary_table(fdf, "광고그룹명"), "광고그룹명"), min_spend)
     adset_tbl = adset_tbl.rename(columns={"광고그룹명": "광고세트"})
     st.markdown("**🗂 광고세트별 성과**")
-    render_table_paged(style_summary(adset_tbl, "광고세트"), "adset")
+    render_table_paged(STYLE(adset_tbl, "광고세트"), "adset")
     # 소재별 (소재명 클릭 → 인스타 광고페이지)
     creative_tbl = filter_min_spend(
         sort_summary_by_spend(build_summary_table(fdf, "소재명"), "소재명"), min_spend)
@@ -963,7 +1033,7 @@ with tab2:
     st.markdown("**🖼 소재별 성과**")
     if link_map:
         st.caption("소재명을 클릭하면 인스타 광고페이지가 열려요 🔗")
-    styled_creative = style_summary(creative_tbl, "소재")
+    styled_creative = STYLE(creative_tbl, "소재")
     styled_creative["_link"] = styled_creative["소재"].map(link_map).fillna("")
     # 맨 끝에 '소재 링크' 열 추가 — 표를 복사해 노션에 붙여도 링크가 텍스트로 따라가게 함
     # (소재명에 걸린 하이퍼링크는 _link로 그대로 유지)
