@@ -23,14 +23,15 @@ IS_BACKFILL = bool(BACKFILL_SINCE and BACKFILL_UNTIL)
 # 통합 RD 최종 컬럼 순서
 RD_COLUMNS = [
     # 기본 정보
-    "날짜", "매체", "캠페인명", "광고그룹명", "소재명",
+    "날짜", "매체", "광고목적", "캠페인명", "광고그룹명", "소재명",
     # 파일명 생성기 파싱 (17컬럼)
     "제작월", "채널구분", "영상/이미지 구분", "제품코드", "광고종류",
     "스킴명", "대분류 포맷", "소분류 연출",
     "배리에이션 여부", "지면 유형", "상세연출(소재구분)", "프로젝트",
     "파트 구분", "마케터", "집행시작일", "본부 구분", "PD/디자이너",
-    # 성과 지표 (메타+틱톡 공통)
+    # 성과 지표 — 전환광고: 전환수·CPA / 인지광고: ThruPlay·결과당비용
     "노출", "클릭", "CTR (%)", "광고비 (KRW)", "CPC (KRW)", "전환수", "CPA (KRW)",
+    "ThruPlay", "결과당비용",
     # 소재 → 인스타 광고페이지 링크 (fetch_ig_links.py 가 채운 data/ig_links.csv 에서 조인)
     "인스타링크",
 ]
@@ -116,18 +117,33 @@ def to_rd_rows(raw: pd.DataFrame, media: str) -> pd.DataFrame:
         ad_name = str(row.get("ad_name", ""))
         parsed = parse_ad_name(ad_name)
 
-        spend  = float(row.get("spend", 0) or 0)
-        clicks = int(float(row.get("clicks", 0) or 0))
-        imps   = int(float(row.get("impressions", 0) or 0))
-        convs  = int(float(row.get("conversions", 0) or 0))
+        # 광고목적: raw에 있으면 사용, 없으면(과거 데이터·틱톡 등) 전환으로 간주
+        purpose = (str(row.get("광고목적", "")).strip() or "전환")
+
+        spend    = float(row.get("spend", 0) or 0)
+        clicks   = int(float(row.get("clicks", 0) or 0))
+        imps     = int(float(row.get("impressions", 0) or 0))
+        convs    = int(float(row.get("conversions", 0) or 0))
+        thruplay = int(float(row.get("thruplay", 0) or 0))
 
         ctr = round(clicks / imps * 100, 4) if imps > 0 else 0
         cpc = round(spend / clicks)         if clicks > 0 else 0
-        cpa = round(spend / convs)          if convs > 0 else 0
+
+        if purpose == "인지":
+            # 인지광고: 자사몰 구매링크가 없어 전환/CPA는 의미 없음 → 비우고 ThruPlay·결과당비용으로 표시
+            convs_out    = 0
+            cpa_out      = ""
+            result_cost  = round(spend / thruplay) if thruplay > 0 else 0
+        else:
+            # 전환광고: 기존 전환수·CPA 유지, 결과당비용은 비움
+            convs_out    = convs
+            cpa_out      = round(spend / convs) if convs > 0 else 0
+            result_cost  = ""
 
         rec = {
             "날짜":    str(row.get("date", "")),
             "매체":    media,
+            "광고목적": purpose,
             "캠페인명": row.get("campaign_name", ""),
             "광고그룹명": row.get("adset_name", ""),
             "소재명":  ad_name,
@@ -139,8 +155,10 @@ def to_rd_rows(raw: pd.DataFrame, media: str) -> pd.DataFrame:
             "CTR (%)":      ctr,
             "광고비 (KRW)": spend,
             "CPC (KRW)":    cpc,
-            "전환수":       convs,
-            "CPA (KRW)":    cpa,
+            "전환수":       convs_out,
+            "CPA (KRW)":    cpa_out,
+            "ThruPlay":     thruplay,
+            "결과당비용":   result_cost,
         })
         records.append(rec)
     return pd.DataFrame(records, columns=RD_COLUMNS) if records else pd.DataFrame(columns=RD_COLUMNS)
@@ -159,10 +177,10 @@ if new_df.empty:
     exit(0)
 
 # raw CSV 내 중복 제거 (여러 raw 파일이 같은 날짜를 중복 커버할 경우 대비)
-# 키: 날짜+매체+광고그룹명+소재명 (같은 소재가 여러 광고 세트에 배정될 수 있으므로 광고그룹명 포함)
+# 키: 날짜+매체+광고목적+광고그룹명+소재명 (전환·인지 계정에 같은 소재명이 있어도 분리 유지)
 # keep="last": 파일명 정렬상 뒤에 오는(더 최근 수집된) 파일의 값을 우선
 before = len(new_df)
-new_df = new_df.drop_duplicates(subset=["날짜", "매체", "광고그룹명", "소재명"], keep="last")
+new_df = new_df.drop_duplicates(subset=["날짜", "매체", "광고목적", "광고그룹명", "소재명"], keep="last")
 if len(new_df) < before:
     print(f"raw CSV 내 중복 제거: {before - len(new_df)}행 제거")
 
