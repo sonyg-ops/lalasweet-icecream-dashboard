@@ -643,7 +643,13 @@ def load_data() -> pd.DataFrame:
     df["월"] = df["날짜"].dt.month.astype(str).str.zfill(2)
     df["일"] = df["날짜"].dt.day.astype(str).str.zfill(2)
     if "제품코드" in df.columns:
-        df["제품군"] = df["제품코드"].astype(str).str.strip().map(PRODUCT_GROUP).fillna("(기타)")
+        df["제품코드"] = df["제품코드"].astype(str).str.strip()
+        # 제품코드 규칙: '알파벳+한글 1자'(예: P혼, BA딸) 또는 등록된 코드(스혼 등)만 유효.
+        # 옛 비표준 소재명에서 잘못 파싱된 값(2197Wc·혼합·ALL·오늘뭐먹지 등)은 비워 (기타)로 모은다.
+        _valid_code = (df["제품코드"].str.match(r"^[A-Za-z]+[가-힣]$").fillna(False)
+                       | df["제품코드"].isin(PRODUCT_GROUP))
+        df.loc[~_valid_code, "제품코드"] = ""
+        df["제품군"] = df["제품코드"].map(PRODUCT_GROUP).fillna("(기타)")
     # 광고목적: 없거나 빈 값(과거 데이터·틱톡 등)은 전환으로 간주
     if "광고목적" in df.columns:
         df["광고목적"] = (df["광고목적"].astype(str).str.strip()
