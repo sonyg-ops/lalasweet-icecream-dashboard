@@ -649,6 +649,9 @@ def load_data() -> pd.DataFrame:
         _valid_code = (df["제품코드"].str.match(r"^[A-Za-z]+[가-힣]$").fillna(False)
                        | df["제품코드"].isin(PRODUCT_GROUP))
         df.loc[~_valid_code, "제품코드"] = ""
+        # 팝콘(PC*)은 제과 제품 → 빙과 대시보드에서 제외.
+        # (팝콘/멜론바 묶음딜 등 빙과 캠페인에 섞여 수집된 소재라 캠페인명 매칭으로 딸려 들어옴)
+        df = df[~df["제품코드"].str.startswith("PC")]
         df["제품군"] = df["제품코드"].map(PRODUCT_GROUP).fillna("(기타)")
     # 광고목적: 없거나 빈 값(과거 데이터·틱톡 등)은 전환으로 간주
     if "광고목적" in df.columns:
