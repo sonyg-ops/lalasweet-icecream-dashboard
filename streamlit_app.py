@@ -4,6 +4,7 @@
 Streamlit + Plotly | 데이터 소스: Google Sheets (통합RD_원본)
 """
 import html as _html
+import os
 import re
 import time
 import uuid
@@ -625,14 +626,12 @@ def render_update_buttons():
 # =============================================================
 @st.cache_data(ttl=3600, show_spinner="데이터 불러오는 중...")
 def load_data() -> pd.DataFrame:
-    creds = Credentials.from_service_account_info(
-        dict(st.secrets["gcp_service_account"]),
-        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
-    )
-    gc = gspread.authorize(creds)
-    ws = gc.open_by_key(st.secrets["spreadsheet_id"]).worksheet("통합RD_원본")
-    records = ws.get_all_records()
-    df = pd.DataFrame(records)
+    # 데이터는 저장소에 커밋된 통합 마스터 CSV에서 읽는다.
+    # (구글시트 get_all_records는 8.6만 행에서 dict를 통째로 만들어 메모리·시간을 크게 잡아먹어
+    #  무료 서버 콜드스타트에 앱이 강제종료될 수 있음. CSV 읽기(C파서)가 훨씬 가볍고 빠름.
+    #  마스터 CSV는 수집 워크플로우가 매번 저장소에 갱신·커밋하므로 시트와 동일한 최신 데이터.)
+    _csv = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "통합RD_마스터.csv")
+    df = pd.read_csv(_csv, encoding="utf-8-sig", dtype=str).fillna("")
     df["날짜"] = pd.to_datetime(df["날짜"], errors="coerce")
     for col in ["광고비 (KRW)", "노출", "클릭", "전환수", "CTR (%)", "CPA (KRW)",
                 "CPC (KRW)", "영상조회 3초+", "ThruPlay", "결과당비용"]:
