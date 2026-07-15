@@ -281,7 +281,7 @@ def build_summary_table(data: pd.DataFrame, group_col: str, label_fn=None) -> pd
     if "ThruPlay" not in data.columns:
         data["ThruPlay"] = 0
     grp = (
-        data.groupby(group_col)
+        data.groupby(group_col, observed=True)
         .agg(광고비=("광고비 (KRW)", "sum"), 노출=("노출", "sum"),
              링크클릭=("클릭", "sum"), 구매=("전환수", "sum"),
              ThruPlay=("ThruPlay", "sum"))
@@ -421,7 +421,7 @@ def daily_table_aw(d: pd.DataFrame) -> pd.DataFrame:
     }])
     return pd.concat([tbl, total], ignore_index=True)[["일", "광고비", "ThruPlay", "결과당비용"]]
 def valid_opts(df: pd.DataFrame, col: str) -> list:
-    grp = df.groupby(col)["노출"].sum()
+    grp = df.groupby(col, observed=True)["노출"].sum()
     return sorted([str(v) for v, imp in grp.items()
                    if str(v).strip() != "" and imp > 0])
 _HANGUL_NAME = re.compile(r"^[가-힣]{2,4}$")
@@ -662,6 +662,23 @@ def load_data() -> pd.DataFrame:
     for _c in ["ThruPlay", "결과당비용"]:
         if _c not in df.columns:
             df[_c] = 0
+    # ── 메모리 최적화 ─────────────────────────────────────────────
+    # st.cache_data는 세션마다 복사본을 반환하므로, 동시접속이 많으면 메모리가 급증한다.
+    # 정수 지표는 int32로, 반복 많은 문자열은 category로 바꿔 복사본을 가볍게 만든다.
+    # (광고비 등 금액은 합계 정확도를 위해 float64 유지)
+    for _c in ["노출", "클릭", "전환수", "ThruPlay"]:
+        if _c in df.columns:
+            df[_c] = pd.to_numeric(df[_c], errors="coerce").fillna(0).astype("int32")
+    _cat_cols = [
+        "매체", "광고목적", "캠페인명", "광고그룹명", "소재명",
+        "제작월", "채널구분", "영상/이미지 구분", "제품코드", "제품군", "광고종류",
+        "스킴명", "대분류 포맷", "소분류 연출", "배리에이션 여부", "지면 유형",
+        "상세연출(소재구분)", "프로젝트", "파트 구분", "마케터", "집행시작일",
+        "본부 구분", "PD/디자이너", "인스타링크", "연", "월", "일",
+    ]
+    for _c in _cat_cols:
+        if _c in df.columns:
+            df[_c] = df[_c].astype("category")
     return df.sort_values("날짜")
 
 
@@ -948,7 +965,7 @@ with tab1:
     render_kpi_view(kpi)
     st.markdown("---")
     daily_prod = (
-        fdf.groupby([fdf["날짜"].dt.date, "제품코드"])
+        fdf.groupby([fdf["날짜"].dt.date, "제품코드"], observed=True)
         .agg(spend=("광고비 (KRW)", "sum"))
         .reset_index().rename(columns={"날짜": "date"})
     )
@@ -965,7 +982,7 @@ with tab1:
     daily_cpa["CVR"] = (daily_cpa["conv"] / daily_cpa["clk"].replace(0, float("nan")) * 100).fillna(0)
     daily_cpa["결과당비용"] = (daily_cpa["spend"] / daily_cpa["thru"].replace(0, float("nan"))).fillna(0)
     prod_codes_sorted = (
-        daily_prod.groupby("제품코드")["spend"].sum()
+        daily_prod.groupby("제품코드", observed=True)["spend"].sum()
         .sort_values(ascending=False).index.tolist()
     )
     _line_metric = "결과당비용" if IS_AW else "CPA"   # 인지는 결과당비용, 전환은 CPA
@@ -1002,14 +1019,14 @@ with tab1:
         render_pinned_total_table(daily_table_aw(fdf) if IS_AW else daily_table(fdf))
     col_a, col_b = st.columns(2)
     with col_a:
-        by_adtype = fdf.groupby("영상/이미지 구분")["광고비 (KRW)"].sum().reset_index()
+        by_adtype = fdf.groupby("영상/이미지 구분", observed=True)["광고비 (KRW)"].sum().reset_index()
         fig2 = px.pie(by_adtype, names="영상/이미지 구분", values="광고비 (KRW)",
                       title="소재유형별 광고비 비중 (V/I)", color_discrete_sequence=PALETTE)
         fig2.update_layout(height=300, margin=dict(t=50, b=20),
                            paper_bgcolor="white", plot_bgcolor="white")
         st.plotly_chart(fig2, use_container_width=True)
     with col_b:
-        by_media_pie = fdf.groupby("매체")["광고비 (KRW)"].sum().reset_index()
+        by_media_pie = fdf.groupby("매체", observed=True)["광고비 (KRW)"].sum().reset_index()
         fig3 = px.pie(by_media_pie, names="매체", values="광고비 (KRW)",
                       title="매체별 광고비 비중", color_discrete_sequence=PALETTE)
         fig3.update_layout(height=300, margin=dict(t=50, b=20),
