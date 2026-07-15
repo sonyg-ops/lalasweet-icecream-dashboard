@@ -725,26 +725,31 @@ with st.sidebar:
     _cur_month = f"{date.today().month}월"
     st.markdown("**📅 연도**")
     year_opts = sorted(df["날짜"].dt.year.unique().tolist(), reverse=True)
-    sel_years = st.multiselect("연도", year_opts,
-                               default=[_cur_year] if _cur_year in year_opts else [],
+    if "f_year" not in st.session_state:
+        st.session_state["f_year"] = [_cur_year] if _cur_year in year_opts else []
+    sel_years = st.multiselect("연도", year_opts, key="f_year",
                                placeholder="전체", label_visibility="collapsed")
     st.markdown("**📅 월**")
     avail_months = sorted(df["날짜"].dt.month.unique().tolist())
     month_labels = [f"{m}월" for m in avail_months]
-    sel_months = st.multiselect("월", month_labels,
-                                default=[_cur_month] if _cur_month in month_labels else [],
+    if "f_month" not in st.session_state:
+        st.session_state["f_month"] = [_cur_month] if _cur_month in month_labels else []
+    sel_months = st.multiselect("월", month_labels, key="f_month",
                                 placeholder="전체", label_visibility="collapsed")
     st.markdown("**📅 주** (월~일)")
     _wk_all = (df["날짜"] - pd.to_timedelta(df["날짜"].dt.weekday, unit="D")).dt.normalize()
     avail_weeks = sorted(_wk_all.dt.date.unique().tolist(), reverse=True)
     def _wk_label(ws):
         return f"{ws.year} {ws.strftime('%m/%d')}~{(ws + timedelta(days=6)).strftime('%m/%d')}"
-    sel_weeks = st.multiselect("주", avail_weeks, format_func=_wk_label,
+    sel_weeks = st.multiselect("주", avail_weeks, format_func=_wk_label, key="f_week",
                                placeholder="전체", label_visibility="collapsed")
     st.markdown("**📅 일** (최신순)")
     avail_dates = sorted(df["날짜"].dt.strftime("%Y-%m-%d").unique().tolist(), reverse=True)
     sel_dates = st.multiselect("일", avail_dates, placeholder="전체",
-                               label_visibility="collapsed")
+                               key="f_date", label_visibility="collapsed")
+    st.button("↩️ 기간 초기화", key="rst_period",
+              on_click=_reset_keys, args=(["f_year", "f_month", "f_week", "f_date"],),
+              use_container_width=True)
     # 위에서 고른 기간(연/월/일)으로 아래 포맷·연출·Meta 구조 드롭다운을 좁힌다
     df_scope = df
     if sel_years:
@@ -759,17 +764,18 @@ with st.sidebar:
         df_scope = df_scope[df_scope["날짜"].dt.strftime("%Y-%m-%d").isin(sel_dates)]
     st.caption("↓ 포맷·연출·Meta/TikTok 구조는 위에서 고른 기간·광고유형 기준으로 좁혀져요")
     st.markdown("**📺 매체**")
-    sel_media = st.multiselect("매체", valid_opts(df, "매체"),
+    sel_media = st.multiselect("매체", valid_opts(df, "매체"), key="f_media",
                                placeholder="전체", label_visibility="collapsed")
     st.markdown("**🎬 광고유형**")
     sel_adtype = st.multiselect("광고유형",
                                 [o for o in valid_opts(df, "영상/이미지 구분") if o in ("I", "V")],
+                                key="f_adtype",
                                 placeholder="전체", label_visibility="collapsed")
     # 광고유형 선택도 아래 포맷·연출·Meta 구조 드롭다운에 반영
     if sel_adtype:
         df_scope = df_scope[df_scope["영상/이미지 구분"].astype(str).isin(sel_adtype)]
     st.markdown("**🍧 제품군**")
-    sel_prodgroup = st.multiselect("제품군", valid_opts(df, "제품군"),
+    sel_prodgroup = st.multiselect("제품군", valid_opts(df, "제품군"), key="f_prodgroup",
                                    placeholder="전체", label_visibility="collapsed")
     st.markdown("**📦 제품코드**")
     _df_pg = df[df["제품군"].astype(str).isin(sel_prodgroup)] if sel_prodgroup else df
@@ -778,6 +784,9 @@ with st.sidebar:
         st.session_state["f_prodcode"] = [x for x in st.session_state["f_prodcode"] if x in prodcode_opts]
     sel_prodcode = st.multiselect("제품코드", prodcode_opts, placeholder="전체",
                                   key="f_prodcode", label_visibility="collapsed")
+    st.button("↩️ 매체·유형·제품 초기화", key="rst_media_prod",
+              on_click=_reset_keys, args=(["f_media", "f_adtype", "f_prodgroup", "f_prodcode"],),
+              use_container_width=True)
     st.markdown("---")
     st.markdown("**👤 담당자**")
     st.markdown("**🧑‍💼 마케터**")
