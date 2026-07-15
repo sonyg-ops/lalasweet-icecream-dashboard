@@ -779,6 +779,23 @@ with st.sidebar:
     sel_prodcode = st.multiselect("제품코드", prodcode_opts, placeholder="전체",
                                   key="f_prodcode", label_visibility="collapsed")
     st.markdown("---")
+    st.markdown("**👤 담당자**")
+    st.markdown("**🧑‍💼 마케터**")
+    sel_marketer = st.multiselect("마케터", person_name_opts(df, "마케터"),
+                                  placeholder="전체 (이름 입력해 검색)",
+                                  key="f_marketer", label_visibility="collapsed")
+    st.markdown("**🎨 PD/디자이너**")
+    sel_designer = st.multiselect("PD/디자이너", person_name_opts(df, "PD/디자이너"),
+                                  placeholder="전체 (이름 입력해 검색)",
+                                  key="f_designer", label_visibility="collapsed")
+    st.button("↩️ 담당자 초기화", key="rst_person",
+              on_click=_reset_keys, args=(["f_marketer", "f_designer"],),
+              use_container_width=True)
+    st.markdown("**💰 광고비 최소금액**")
+    st.caption("분류별 성과 표에서 합계 광고비가 이 금액 미만인 항목을 숨깁니다 (0 = 전체 표시)")
+    min_spend = st.number_input("광고비 최소금액", min_value=0, value=0, step=10000,
+                                format="%d", label_visibility="collapsed")
+    st.markdown("---")
     st.markdown("**🎨 포맷 · 연출**")
     st.markdown("**🧩 대분류 포맷**")
     format_opts = valid_opts(df_scope, "대분류 포맷")
@@ -824,24 +841,6 @@ with st.sidebar:
     st.button("↩️ Meta/TikTok 구조 초기화", key="rst_meta",
               on_click=_reset_keys, args=(["f_campaign", "f_adset", "f_creative"],),
               use_container_width=True)
-    st.markdown("---")
-    st.markdown("**👤 담당자**")
-    st.markdown("**🧑‍💼 마케터**")
-    sel_marketer = st.multiselect("마케터", person_name_opts(df, "마케터"),
-                                  placeholder="전체 (이름 입력해 검색)",
-                                  key="f_marketer", label_visibility="collapsed")
-    st.markdown("**🎨 PD/디자이너**")
-    sel_designer = st.multiselect("PD/디자이너", person_name_opts(df, "PD/디자이너"),
-                                  placeholder="전체 (이름 입력해 검색)",
-                                  key="f_designer", label_visibility="collapsed")
-    st.button("↩️ 담당자 초기화", key="rst_person",
-              on_click=_reset_keys, args=(["f_marketer", "f_designer"],),
-              use_container_width=True)
-    st.markdown("---")
-    st.markdown("**💰 광고비 최소금액**")
-    st.caption("분류별 성과 표에서 합계 광고비가 이 금액 미만인 항목을 숨깁니다 (0 = 전체 표시)")
-    min_spend = st.number_input("광고비 최소금액", min_value=0, value=0, step=10000,
-                                format="%d", label_visibility="collapsed")
     st.markdown("---")
     if st.button("🔄 데이터 새로고침"):
         st.cache_data.clear()
