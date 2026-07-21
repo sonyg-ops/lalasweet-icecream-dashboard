@@ -61,12 +61,29 @@ if not rows or len(rows) < 2:
 
 header = rows[0]
 idx = {name: i for i, name in enumerate(header)}
-missing = [c for c in COLUMNS if c not in idx]
-if missing:
-    print(f"경고: 시트에 없는 컬럼 {missing} -> 해당 값은 공란 처리")
 
-def cell(r, col):
-    i = idx.get(col)
+# 시트 헤더 → build_rd 입력 컬럼 매핑.
+# google_raw 탭은 통합RD_원본 형식(한글 33컬럼)으로 기록됨. 옛 raw 형식(영문)도 폴백 지원.
+# build_rd 는 소재명을 다시 파싱하고 지표를 다시 계산하므로, 여기선 기본 컬럼만 넘기면 된다.
+SRC = {
+    "date":          ["날짜", "date"],
+    "campaign_name": ["캠페인명", "campaign_name"],
+    "adset_name":    ["광고그룹명", "adset_name"],
+    "ad_name":       ["소재명", "ad_name"],
+    "impressions":   ["노출", "impressions"],
+    "clicks":        ["클릭", "clicks"],
+    "spend":         ["광고비 (KRW)", "spend"],
+    "conversions":   ["전환수", "conversions"],
+    "thruplay":      ["ThruPlay", "thruplay"],
+    "광고목적":       ["광고목적"],
+}
+colpos = {c: next((idx[n] for n in cands if n in idx), None) for c, cands in SRC.items()}
+missing = [c for c, p in colpos.items() if p is None]
+if missing:
+    print(f"경고: 시트에서 못 찾은 컬럼 {missing} -> 공란 처리")
+
+def cell(r, out_col):
+    i = colpos.get(out_col)
     return r[i] if (i is not None and i < len(r)) else ""
 
 out = []

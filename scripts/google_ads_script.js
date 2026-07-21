@@ -9,9 +9,8 @@
  * 방식: 스크립트의 GAQL(AdsApp.search)은 영상 조회수 필드를 지원하지 않으므로
  *   영상 광고 객체(AdsApp.videoAds) + Stats.getViews() 로 수집한다.
  *
- * 출력 컬럼(메타/틱톡 raw CSV와 동일):
- *   date, campaign_name, adset_name, ad_name, impressions, clicks, spend, conversions, thruplay, 광고목적
- *   - 인지(영상): conversions=0, thruplay=조회수(views)  → 대시보드가 결과당비용=광고비÷조회수 계산
+ * 출력: 통합RD_원본과 동일한 33컬럼 헤더로 기록 (소재명 파싱값 채움, 메타/틱톡 인지 행과 동일 형식).
+ *   유튜브=인지 → 전환수·CPA·인스타링크는 공란, 조회수→ThruPlay, 결과당비용=광고비÷조회수.
  */
 
 // ===== 설정 (여기 두 줄만 채우면 됨) =====
@@ -23,8 +22,11 @@ var START_DATE = '';
 var END_DATE   = '';
 // =========================================
 
-var HEADER = ['date','campaign_name','adset_name','ad_name',
-              'impressions','clicks','spend','conversions','thruplay','광고목적'];
+// 통합RD_원본과 동일한 33컬럼 헤더 (build_rd.py 의 RD_COLUMNS 순서와 동일)
+var HEADER = ['날짜','매체','광고목적','캠페인명','광고그룹명','소재명',
+  '제작월','채널구분','영상/이미지 구분','제품코드','광고종류','스킴명','대분류 포맷','소분류 연출',
+  '배리에이션 여부','지면 유형','상세연출(소재구분)','프로젝트','파트 구분','마케터','집행시작일','본부 구분','PD/디자이너',
+  '노출','클릭','CTR (%)','광고비 (KRW)','CPC (KRW)','전환수','CPA (KRW)','ThruPlay','결과당비용','인스타링크'];
 
 function main() {
   var dates = datesToCollect();          // ['2026-07-20', ...]
@@ -62,13 +64,18 @@ function main() {
       var spend = Number(st.getCost() || 0);    // 계정 통화(KRW) 그대로
       var views = Number(st.getViews() || 0);
 
-      // 유튜브 영상은 전부 인지광고 → 광고목적 고정, 조회수를 결과 지표(thruplay 자리)로 사용
-      var purpose     = '인지';
-      var conversions = 0;
-      var thruplay    = views;
+      // build_rd.py 와 동일 계산 (유튜브=인지: 전환수·CPA 공란, ThruPlay=조회수, 결과당비용=광고비÷조회수)
+      var ctr        = imps > 0 ? Math.round(clks / imps * 100 * 10000) / 10000 : 0;
+      var cpc        = clks > 0 ? Math.round(spend / clks) : 0;
+      var resultCost = views > 0 ? Math.round(spend / views) : 0;
+      var parsed     = parseAdName(adName);      // 소재명 파싱 17컬럼
 
       newDates[ymd] = true;
-      out.push([ymd, campaign, adGroup, adName, imps, clks, spend, conversions, thruplay, purpose]);
+      out.push(
+        [ymd, 'YouTube', '인지', campaign, adGroup, adName]
+          .concat(parsed)
+          .concat([imps, clks, ctr, spend, cpc, 0, '', views, resultCost, ''])
+      );
     }
   }
 
@@ -108,6 +115,35 @@ function writeToSheet(newRows, newDates) {
   var all = [HEADER].concat(keep).concat(newRows);
   sheet.clearContents();
   sheet.getRange(1, 1, all.length, HEADER.length).setValues(all);
+}
+
+// ===== 소재명 파싱 (build_rd.py 의 parse_ad_name 과 동일 규칙) =====
+// 반환: 17개 값 배열 (제작월,채널구분,영상/이미지 구분,제품코드,광고종류,스킴명,대분류 포맷,
+//        소분류 연출,배리에이션 여부,지면 유형,상세연출(소재구분),프로젝트,파트 구분,마케터,
+//        집행시작일,본부 구분,PD/디자이너). 규칙 밖(띄어쓰기 이름 등)이면 전부 공란.
+function parseAdName(adName) {
+  var r = ['','','','','','','','','','','','','','','','',''];   // 17개
+  if (!adName) return r;
+  var b = adName.indexOf('[');
+  if (b === -1) return r;
+  var p = adName.slice(b).split('_');
+  if (p.length < 3) return r;
+  var m = /^(\[.+?\])(.*)$/.exec(p[0]);
+  if (m) { r[0] = m[1]; r[1] = m[2]; }          // 제작월, 채널구분
+  if (p.length > 1) r[2] = p[1];                // 영상/이미지 구분
+  if (p.length > 2) r[3] = p[2];                // 제품코드
+  if (p.length > 3) r[4] = p[3];                // 광고종류
+  if (p.length > 4) r[5] = p[4];                // 스킴명
+  if (p.length > 5) r[6] = p[5];                // 대분류 포맷
+  if (p.length > 6) r[7] = p[6];                // 소분류 연출
+  if (p.length > 7) { var kl = p[7].split('.'); r[8] = kl[0]; r[9]  = kl.length > 1 ? kl.slice(1).join('.') : ''; }  // 배리에이션, 지면유형
+  if (p.length > 8) { var mn = p[8].split('.'); r[10] = mn[0]; r[11] = mn.length > 1 ? mn.slice(1).join('.') : ''; } // 상세연출, 프로젝트
+  if (p.length > 9)  r[12] = p[9];              // 파트 구분
+  if (p.length > 10) r[13] = p[10];             // 마케터
+  if (p.length > 11) r[14] = p[11];             // 집행시작일
+  if (p.length > 12) r[15] = p[12];             // 본부 구분
+  if (p.length > 13) r[16] = p.slice(13).join('_');  // PD/디자이너
+  return r;
 }
 
 // ===== 빙과만 남기기 (scripts/meta_api.py 의 is_bingwa 와 동일 규칙) =====
