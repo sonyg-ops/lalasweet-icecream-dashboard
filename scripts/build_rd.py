@@ -43,6 +43,37 @@ PARSE_COLS = [
     "파트 구분", "마케터", "집행시작일", "본부 구분", "PD/디자이너",
 ]
 
+def _parse_spaced_name(ad_name: str, result: dict) -> dict:
+    """구글애즈가 소재명의 특수문자([ ] _ .)를 공백으로 바꿔버린 형식 대응.
+    예: '26 07F V JD멜 인지 ...'  ← 원본 '[26.07]F_V_JD멜_인지_...'
+    앞쪽(제작월~소분류연출)은 위치가 고정이라 안전하게 복원하고,
+    표준 17토큰 형태일 때만 나머지(배리에이션~PD)까지 채운다. 아니면 앞부분만."""
+    t = ad_name.split()
+    if len(t) < 5:
+        return result
+    m1 = re.match(r"^(\d{2})([A-Za-z]+)$", t[1])   # '07F' → 월 07, 채널 F
+    if not (re.match(r"^\d{2}$", t[0]) and m1):
+        return result                              # 이 패턴 아니면 공란 유지
+    result["제작월"]          = f"[{t[0]}.{m1.group(1)}]"
+    result["채널구분"]         = m1.group(2)
+    result["영상/이미지 구분"]  = t[2]
+    result["제품코드"]         = t[3]
+    result["광고종류"]         = t[4]
+    if len(t) > 5: result["스킴명"]      = t[5]
+    if len(t) > 6: result["대분류 포맷"] = t[6]
+    if len(t) > 7: result["소분류 연출"] = t[7]
+    if len(t) == 17:   # 표준 전체 구조일 때만 중간·뒤까지 (아니면 앞부분만 안전하게)
+        result["배리에이션 여부"]    = t[8]
+        result["지면 유형"]         = t[9]
+        result["상세연출(소재구분)"] = t[10]
+        result["프로젝트"]          = t[11]
+        result["파트 구분"]         = t[12]
+        result["마케터"]            = t[13]
+        result["집행시작일"]         = t[14]
+        result["본부 구분"]         = t[15]
+        result["PD/디자이너"]       = t[16]
+    return result
+
 def parse_ad_name(ad_name: str) -> dict:
     """
     파일명 생성기 수식 기준 파싱
@@ -56,7 +87,8 @@ def parse_ad_name(ad_name: str) -> dict:
     # 소재명 앞에 "(운영X) " 같은 접두어가 붙어도 파싱되도록 첫 '['부터 사용
     b = ad_name.find("[")
     if b == -1:
-        return result
+        # 대괄호 없음 → 구글애즈가 특수문자를 공백으로 치환한 형식일 수 있음
+        return _parse_spaced_name(ad_name, result)
     ad_name = ad_name[b:]
 
     parts = ad_name.split("_")

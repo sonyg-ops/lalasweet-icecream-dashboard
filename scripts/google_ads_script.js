@@ -125,7 +125,7 @@ function parseAdName(adName) {
   var r = ['','','','','','','','','','','','','','','','',''];   // 17개
   if (!adName) return r;
   var b = adName.indexOf('[');
-  if (b === -1) return r;
+  if (b === -1) return parseSpacedName(adName, r);   // 구글애즈가 특수문자를 공백치환한 형식 대응
   var p = adName.slice(b).split('_');
   if (p.length < 3) return r;
   var m = /^(\[.+?\])(.*)$/.exec(p[0]);
@@ -143,6 +143,28 @@ function parseAdName(adName) {
   if (p.length > 11) r[14] = p[11];             // 집행시작일
   if (p.length > 12) r[15] = p[12];             // 본부 구분
   if (p.length > 13) r[16] = p.slice(13).join('_');  // PD/디자이너
+  return r;
+}
+
+// 구글애즈가 소재명의 특수문자([ ] _ .)를 공백으로 바꾼 형식 대응 (build_rd._parse_spaced_name 과 동일)
+// 예: '26 07F V JD멜 인지 ...' ← 원본 '[26.07]F_V_JD멜_인지_...'
+function parseSpacedName(adName, r) {
+  var t = adName.split(/\s+/).filter(function (x) { return x !== ''; });
+  if (t.length < 5) return r;
+  var m1 = /^(\d{2})([A-Za-z]+)$/.exec(t[1]);        // '07F' → 월 07, 채널 F
+  if (!(/^\d{2}$/.test(t[0]) && m1)) return r;       // 이 패턴 아니면 공란
+  r[0] = '[' + t[0] + '.' + m1[1] + ']';             // 제작월
+  r[1] = m1[2];                                      // 채널구분
+  r[2] = t[2];                                       // 영상/이미지 구분
+  r[3] = t[3];                                       // 제품코드
+  r[4] = t[4];                                       // 광고종류
+  if (t.length > 5) r[5] = t[5];                     // 스킴명
+  if (t.length > 6) r[6] = t[6];                     // 대분류 포맷
+  if (t.length > 7) r[7] = t[7];                     // 소분류 연출
+  if (t.length === 17) {                             // 표준 전체 구조일 때만 나머지
+    r[8] = t[8]; r[9] = t[9]; r[10] = t[10]; r[11] = t[11];      // 배리에이션,지면유형,상세연출,프로젝트
+    r[12] = t[12]; r[13] = t[13]; r[14] = t[14]; r[15] = t[15]; r[16] = t[16];  // 파트,마케터,집행,본부,PD
+  }
   return r;
 }
 
