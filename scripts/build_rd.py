@@ -130,6 +130,39 @@ def parse_ad_name(ad_name: str) -> dict:
 
     return result
 
+def _norm_key(s) -> str:
+    """소재명에서 구분자·공백([ ] _ . 및 공백)을 모두 제거한 매칭 키.
+    구글애즈가 특수문자를 공백으로 바꿔도, 정상 이름과 글자만 같으면 동일 키가 된다."""
+    return re.sub(r"[\[\]_.\s]", "", str(s))
+
+def fill_youtube_from_clean(df: pd.DataFrame) -> int:
+    """구글애즈(유튜브)가 소재명의 특수문자를 공백으로 바꿔 보고해
+    _parse_spaced_name 만으로는 뒤쪽 분류 열이 비는 경우를 보정한다.
+    3채널에 같은 소재를 동일 제목으로 집행하므로, 특수문자를 제거한 키로
+    정상 이름(메타/틱톡/정상 유튜브)을 찾아 그 분류 17열을 그대로 가져온다.
+    (소재명 셀 자체는 구글 보고값 그대로 두고, 분류 열만 채운다.)"""
+    # 정상 이름('['로 시작) 행 → 정규화 키별 분류 17열 사전
+    clean = {}
+    for _, r in df.iterrows():
+        name = str(r.get("소재명", ""))
+        if name.startswith("["):
+            k = _norm_key(name)
+            if k and k not in clean:
+                clean[k] = {c: r.get(c, "") for c in PARSE_COLS}
+    fixed = 0
+    for i, r in df.iterrows():
+        if str(r.get("매체", "")) != "YouTube":
+            continue
+        name = str(r.get("소재명", ""))
+        if name.startswith("["):          # 이미 정상형 → 손대지 않음
+            continue
+        tw = clean.get(_norm_key(name))
+        if tw:
+            for c in PARSE_COLS:
+                df.at[i, c] = tw[c]
+            fixed += 1
+    return fixed
+
 def load_raw(pattern: str, media: str) -> pd.DataFrame:
     files = sorted(glob.glob(os.path.join(DATA_DIR, pattern)))
     if not files:
@@ -252,6 +285,11 @@ if not master.empty:
 
 result = pd.concat([master, new_df], ignore_index=True)
 result = result.sort_values("날짜", kind="stable").reset_index(drop=True)
+
+# 유튜브 공백형 소재명 분류 복구: 전체(과거+신규)에 적용 → 다음 수집 때 과거 행도 자동 정리
+n_fixed = fill_youtube_from_clean(result)
+if n_fixed:
+    print(f"유튜브 공백형 소재명 분류 복구: {n_fixed}행 (정상 이름 매칭)")
 
 # 소재명 → 인스타 광고페이지 링크 조인 (data/ig_links.csv, 없거나 빈 값이면 공란)
 IG_PATH = os.path.join(DATA_DIR, "ig_links.csv")
