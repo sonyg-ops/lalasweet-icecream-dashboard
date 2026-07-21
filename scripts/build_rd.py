@@ -119,6 +119,9 @@ def to_rd_rows(raw: pd.DataFrame, media: str) -> pd.DataFrame:
 
         # 광고목적: raw에 있으면 사용, 없으면(과거 데이터·틱톡 등) 전환으로 간주
         purpose = (str(row.get("광고목적", "")).strip() or "전환")
+        # 구글애즈(유튜브)는 전부 인지광고 → 소재명 표기가 흔들려도 인지로 고정
+        if media == "YouTube":
+            purpose = "인지"
 
         spend    = float(row.get("spend", 0) or 0)
         clicks   = int(float(row.get("clicks", 0) or 0))
@@ -166,9 +169,10 @@ def to_rd_rows(raw: pd.DataFrame, media: str) -> pd.DataFrame:
 # ── 실행 ──────────────────────────────────────────────────────
 meta_raw   = load_raw("meta_raw_*.csv",   "Meta")
 tiktok_raw = load_raw("tiktok_raw_*.csv", "TikTok")
+google_raw = load_raw("google_raw_*.csv", "YouTube")   # 구글애즈(유튜브 영상) — google_sheet_to_raw.py 산출
 
 new_df = pd.concat(
-    [to_rd_rows(meta_raw, "Meta"), to_rd_rows(tiktok_raw, "TikTok")],
+    [to_rd_rows(meta_raw, "Meta"), to_rd_rows(tiktok_raw, "TikTok"), to_rd_rows(google_raw, "YouTube")],
     ignore_index=True,
 )
 
@@ -190,25 +194,29 @@ if os.path.exists(MASTER_PATH):
 else:
     master = pd.DataFrame(columns=RD_COLUMNS)
 
-# 백필 모드: 해당 날짜 범위 행 제거 (새 데이터에 없는 날짜도 범위 내면 비워짐)
+# 백필 모드: 해당 날짜 범위 행 제거 (이번에 수집한 매체만 — 다른 매체 데이터는 보존)
 if IS_BACKFILL:
     before_rows = len(master)
     if not master.empty:
-        master = master[
-            ~master["날짜"].astype(str).between(BACKFILL_SINCE, BACKFILL_UNTIL)
-        ]
+        media_in = set(new_df["매체"].astype(str))
+        in_range = master["날짜"].astype(str).between(BACKFILL_SINCE, BACKFILL_UNTIL)
+        in_media = master["매체"].astype(str).isin(media_in)
+        master = master[~(in_range & in_media)]
     removed = before_rows - len(master)
-    print(f"[백필 모드] {BACKFILL_SINCE} ~ {BACKFILL_UNTIL} 기존 {removed}행 제거 → 새 데이터로 교체")
+    print(f"[백필 모드] {BACKFILL_SINCE} ~ {BACKFILL_UNTIL} (매체 {sorted(set(new_df['매체']))}) 기존 {removed}행 제거 → 새 데이터로 교체")
 
-# 날짜별 교체: 새로 수집된 날짜는 기존 행을 지우고 최신본으로 교체
-# (실시간 수집으로 들어간 당일 잠정치가 다음 수집 때 정확한 수치로 덮어써지도록)
+# 날짜·매체별 교체: 새로 수집된 (날짜+매체) 조합만 기존 행을 지우고 최신본으로 교체
+# (실시간 수집으로 들어간 당일 잠정치가 다음 수집 때 정확한 수치로 덮어써지도록.
+#  매체 단위로 교체하므로, 한 매체만 재수집해도 같은 날짜의 다른 매체는 그대로 보존됨)
 if not master.empty:
-    new_dates = set(new_df["날짜"].astype(str))
+    _sep = "\x1f"
+    new_keys = set(new_df["날짜"].astype(str) + _sep + new_df["매체"].astype(str))
     before_rows = len(master)
-    master = master[~master["날짜"].astype(str).isin(new_dates)]
+    m_keys = master["날짜"].astype(str) + _sep + master["매체"].astype(str)
+    master = master[~m_keys.isin(new_keys)]
     replaced = before_rows - len(master)
     if replaced > 0:
-        print(f"날짜별 교체: 기존 {replaced}행 제거 후 최신 데이터로 교체")
+        print(f"날짜·매체별 교체: 기존 {replaced}행 제거 후 최신 데이터로 교체")
 
 result = pd.concat([master, new_df], ignore_index=True)
 result = result.sort_values("날짜", kind="stable").reset_index(drop=True)

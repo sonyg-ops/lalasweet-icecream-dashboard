@@ -185,7 +185,7 @@ while current <= until:
     ]
     _BINGWA_CODES = [
         "BA망", "CO바", "P혼", "ZB귤", "ZB파", "스틱바", "제로바",
-        "BA딸", "BA옥", "BA혼", "JD망", "MB바", "M우", "M팥",
+        "BA딸", "BA옥", "BA혼", "JD망", "JD멜", "MB바", "M우", "M팥",
     ]
 
     def _is_bingwa(m):

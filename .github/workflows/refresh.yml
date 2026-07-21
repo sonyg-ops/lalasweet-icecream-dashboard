@@ -69,6 +69,14 @@ jobs:
           SLACK_USER_ID: "${{ secrets.SLACK_USER_ID }}"
         run: python scripts/tiktok_api.py
 
+      - name: 구글애즈(유튜브) 시트 → raw
+        env:
+          BACKFILL_SINCE: "${{ steps.target.outputs.date }}"
+          BACKFILL_UNTIL: "${{ steps.target.outputs.date }}"
+          SPREADSHEET_ID: "${{ secrets.SPREADSHEET_ID }}"
+          GCP_SERVICE_ACCOUNT_JSON: "${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}"
+        run: python scripts/google_sheet_to_raw.py
+
       - name: 통합 RD 빌드
         env:
           BACKFILL_SINCE: "${{ steps.target.outputs.date }}"

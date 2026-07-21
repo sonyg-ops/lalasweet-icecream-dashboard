@@ -60,6 +60,12 @@ jobs:
           LINK_MIN_SPEND: '100000'   # 하루에 이 금액 이상 쓴 소재의 링크를 자동 추가(캐시)
         run: python scripts/fetch_ig_links.py
 
+      - name: 구글애즈(유튜브) 시트 → raw
+        env:
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+        run: python scripts/google_sheet_to_raw.py
+
       - name: 통합 RD 빌드
         run: python scripts/build_rd.py
 

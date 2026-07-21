@@ -65,6 +65,12 @@ jobs:
           META_ACCESS_TOKEN: "${{ secrets.META_ACCESS_TOKEN }}"
         run: python scripts/fetch_ig_links.py
 
+      - name: 구글애즈(유튜브) 시트 → raw (백필)
+        env:
+          SPREADSHEET_ID: "${{ secrets.SPREADSHEET_ID }}"
+          GCP_SERVICE_ACCOUNT_JSON: "${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}"
+        run: python scripts/google_sheet_to_raw.py
+
       - name: 통합 RD 빌드
         run: python scripts/build_rd.py
 
