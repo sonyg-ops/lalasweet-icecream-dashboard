@@ -363,7 +363,8 @@ def build_creative_channel_summary(data: pd.DataFrame, min_spend: float = 0) -> 
     d = d[(d["매체"] != "") & (d["매체"] != "nan")]
     d[grp_src] = (d[grp_src].fillna("(미지정)").astype(str).str.strip()
                   .replace({"": "(미지정)", "nan": "(미지정)", "None": "(미지정)", "<NA>": "(미지정)"}))
-    medias = MEDIA_ORDER   # 항상 메타·틱톡·유튜브 순서로 3채널을 노출
+    medias = MEDIA_ORDER   # 집계·통합합계용 (메타·틱톡·유튜브)
+    disp_medias = list(reversed(MEDIA_ORDER))   # 표 열 노출 순서: 유튜브·틱톡·메타
     g = (d.groupby([grp_src, "매체"], observed=True)
            .agg(spend=("광고비 (KRW)", "sum"), thru=("ThruPlay", "sum")).reset_index())
     spend_p = g.pivot_table(index=grp_src, columns="매체", values="spend", aggfunc="sum", fill_value=0)
@@ -382,7 +383,7 @@ def build_creative_channel_summary(data: pd.DataFrame, min_spend: float = 0) -> 
     def _cost(v):  return f"{int(round(v)):,}" if v else "0"
     def _cpv(spend, thru):  return f"{int(round(spend / thru)):,}" if thru > 0 else "-"
     cols = [first_col, "제작자", "채널통합 비용(원)", "채널통합 조회당비용(원)"]
-    for m in medias:
+    for m in disp_medias:
         cols += [f"{MEDIA_LABEL.get(m, m)} 비용(원)", f"{MEDIA_LABEL.get(m, m)} 조회당비용(원)"]
     rows = []
     for name, set_spend in spend_p["_통합"].sort_values(ascending=False).items():
