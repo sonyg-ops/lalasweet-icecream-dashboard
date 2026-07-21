@@ -75,6 +75,11 @@ BAR_PALETTE = ["#F4845F", "#7BAFD4", "#F7B97A", "#82C9A7",
 TOTAL_BG   = "#FFF0E6"
 TOTAL_FG   = "#B84A00"
 TOTAL_FONT = "bold"
+# --- 세트·소재별 매체 성과표: 매체 표시 순서/라벨 (유튜브는 데이터가 들어오면 자동 노출) ---
+SET_BG     = "#1F3A5F"   # 세트 합계행 배경(진한 남색)
+SET_FG     = "#FFFFFF"   # 세트 합계행 글자색
+MEDIA_ORDER = ["Meta", "TikTok", "YouTube"]
+MEDIA_LABEL = {"Meta": "메타", "TikTok": "틱톡", "YouTube": "유튜브"}
 # --- 5P구성 기준일 ---
 PC_BEFORE_START = pd.Timestamp("2026-06-01")
 PC_BEFORE_END   = pd.Timestamp("2026-06-16")
@@ -277,6 +282,130 @@ def render_table_paged(df: pd.DataFrame, key: str, page_size: int = 10, link_col
     if shown > page_size:
         c2.button("접기", key=f"less_{key}", on_click=_page_less, args=(sk, page_size))
     c3.caption(f"상위 {shown} / 전체 {n}개 표시")
+def _media_sort_key(m: str):
+    return (MEDIA_ORDER.index(m) if m in MEDIA_ORDER else len(MEDIA_ORDER), str(m))
+def build_set_creative_media(data: pd.DataFrame, min_spend: float = 0):
+    """광고세트(광고그룹명) → 개별 소재 2단 구조로, 매체별 비용·조회당비용을 가로로 펼친다.
+    반환: (표시용 DataFrame, 매체 목록, 소재→링크 맵). 조회당비용 = 광고비÷ThruPlay(없으면 '-')."""
+    d = data.copy()
+    if "ThruPlay" not in d.columns:
+        d["ThruPlay"] = 0
+    d["매체"]      = d["매체"].astype(str).str.strip()
+    d["광고그룹명"] = d["광고그룹명"].fillna("(미지정)").astype(str).str.strip().replace({"": "(미지정)", "nan": "(미지정)"})
+    d["소재명"]     = d["소재명"].fillna("(미지정)").astype(str).str.strip()
+    d = d[(d["매체"] != "") & (d["매체"] != "nan")]
+    medias = sorted(d["매체"].unique().tolist(), key=_media_sort_key)
+    # (세트, 소재, 매체) 단위 집계 → 매체를 가로로 pivot
+    g = (d.groupby(["광고그룹명", "소재명", "매체"], observed=True)
+           .agg(spend=("광고비 (KRW)", "sum"), thru=("ThruPlay", "sum")).reset_index())
+    spend_p = g.pivot_table(index=["광고그룹명", "소재명"], columns="매체", values="spend", aggfunc="sum", fill_value=0)
+    thru_p  = g.pivot_table(index=["광고그룹명", "소재명"], columns="매체", values="thru",  aggfunc="sum", fill_value=0)
+    for m in medias:                       # 한쪽 매체에만 있는 소재도 열이 있도록 보정
+        if m not in spend_p.columns: spend_p[m] = 0
+        if m not in thru_p.columns:  thru_p[m]  = 0
+    spend_p["_통합"] = spend_p[medias].sum(axis=1)
+    # 소재명 → 인스타링크 (있으면)
+    link_map = {}
+    if "인스타링크" in d.columns:
+        lk = d[["소재명", "인스타링크"]].copy()
+        lk["인스타링크"] = lk["인스타링크"].astype(str).str.strip()
+        lk = lk[(lk["인스타링크"] != "") & (lk["인스타링크"] != "nan")]
+        link_map = dict(zip(lk["소재명"], lk["인스타링크"]))
+    def _cost(v):  return f"{int(round(v)):,}" if v else "0"
+    def _cpv(spend, thru):  return f"{int(round(spend / thru)):,}" if thru > 0 else "-"
+    first_col = "광고세트/소재"
+    cost_cols = [f"{MEDIA_LABEL.get(m, m)} 비용(원)" for m in medias] + ["채널통합 비용(원)"]
+    cpv_cols  = [f"{MEDIA_LABEL.get(m, m)} 조회당비용(원)" for m in medias]
+    rows = []
+    # 세트별 통합비용 합 → 큰 순 정렬
+    set_totals = spend_p.groupby(level=0)["_통합"].sum().sort_values(ascending=False)
+    for adset, set_spend in set_totals.items():
+        if min_spend and set_spend < min_spend:
+            continue
+        sub = spend_p.xs(adset, level=0)          # index=소재명
+        tsub = thru_p.xs(adset, level=0)
+        # 세트 합계행
+        srow = {first_col: adset, "구분": "세트 합계", "_isset": True, "_link": ""}
+        for m in medias:
+            srow[f"{MEDIA_LABEL.get(m, m)} 비용(원)"] = _cost(sub[m].sum())
+            srow[f"{MEDIA_LABEL.get(m, m)} 조회당비용(원)"] = _cpv(sub[m].sum(), tsub[m].sum())
+        srow["채널통합 비용(원)"] = _cost(sub["_통합"].sum())
+        rows.append(srow)
+        # 소재행 (통합비용 큰 순)
+        for cname in sub.sort_values("_통합", ascending=False).index:
+            crow = {first_col: cname, "구분": "개별 광고(소재)", "_isset": False,
+                    "_link": link_map.get(cname, "")}
+            for m in medias:
+                crow[f"{MEDIA_LABEL.get(m, m)} 비용(원)"] = _cost(sub.loc[cname, m])
+                crow[f"{MEDIA_LABEL.get(m, m)} 조회당비용(원)"] = _cpv(sub.loc[cname, m], tsub.loc[cname, m])
+            crow["채널통합 비용(원)"] = _cost(sub.loc[cname, "_통합"])
+            rows.append(crow)
+    display_cols = [first_col, "구분"] + cost_cols + cpv_cols
+    out = pd.DataFrame(rows, columns=display_cols + ["_isset", "_link"]) if rows else \
+          pd.DataFrame(columns=display_cols + ["_isset", "_link"])
+    return out, medias
+def render_nested_media_table(df: pd.DataFrame) -> None:
+    """build_set_creative_media 결과를 세트 합계행(진한 배경) + 소재행 중첩 표로 렌더."""
+    tid = "ntbl_" + uuid.uuid4().hex[:8]
+    cols = [c for c in df.columns if c not in ("_isset", "_link")]
+    first_col = cols[0]
+    def _w(i, name):
+        if i == 0: return 300
+        if name == "구분": return 120
+        return 130
+    widths = [_w(i, c) for i, c in enumerate(cols)]
+    total_w = sum(widths)
+    colgroup = "<colgroup>" + "".join(f'<col style="width:{w}px">' for w in widths) + "</colgroup>"
+    th = ("padding:8px 10px; text-align:right; background:#f0f2f6; border-bottom:2px solid #ddd;"
+          "font-size:0.82rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;")
+    hdr = "".join(
+        f'<th data-name="{_esc(c)}" style="{th}{"text-align:left;" if i < 2 else ""}">{_esc(c)}</th>'
+        for i, c in enumerate(cols))
+    def _row_html(row):
+        is_set = bool(row["_isset"])
+        base = (f"padding:6px 10px; font-size:0.82rem; white-space:nowrap; overflow:hidden;"
+                f"text-overflow:ellipsis; border-bottom:1px solid #eee;")
+        if is_set:
+            base += f"background:{SET_BG}; color:{SET_FG}; font-weight:bold; border-bottom:1px solid {SET_BG};"
+        tds = []
+        for i, c in enumerate(cols):
+            align = "left" if i < 2 else "right"
+            v = row[c]
+            if i == 0 and not is_set and str(row.get("_link", "")).strip():
+                url = _esc(str(row["_link"]).strip())
+                cell = (f'<a href="{url}" target="_blank" rel="noopener" '
+                        f'style="color:#1a73e8;text-decoration:none;">{_esc(v)} &#128279;</a>')
+            else:
+                cell = _esc(v)
+            pad = "  " if (i == 0 and not is_set) else ""   # 소재행 첫 열 살짝 들여쓰기 느낌
+            tds.append(f'<td title="{_esc(v)}" style="{base}text-align:{align};">{pad}{cell}</td>')
+        return "<tr>" + "".join(tds) + "</tr>"
+    bdy = "".join(_row_html(r) for _, r in df.iterrows())
+    js = (
+        "function copyN(tid){var t=document.getElementById(tid);var L=[];var H=[];"
+        "t.querySelectorAll('thead th').forEach(function(th){H.push((th.getAttribute('data-name')||'').trim());});"
+        "L.push(H.join('\\t'));"
+        "t.querySelectorAll('tbody tr').forEach(function(tr){var c=[];"
+        "tr.querySelectorAll('td').forEach(function(td){c.push(td.textContent.trim());});L.push(c.join('\\t'));});"
+        "var ta=document.createElement('textarea');ta.value=L.join('\\n');"
+        "ta.style.position='fixed';ta.style.top='-1000px';document.body.appendChild(ta);ta.select();"
+        "var ok=false;try{ok=document.execCommand('copy');}catch(e){}document.body.removeChild(ta);"
+        "var b=document.getElementById(tid+'_cpy');var o=b.innerHTML;b.innerHTML=ok?'✅ 복사됨':'⚠ 실패';"
+        "setTimeout(function(){b.innerHTML=o;},1500);}"
+    )
+    btn_style = ("font-size:0.72rem; padding:3px 10px; border:1px solid #d0d0d0;"
+                 "border-radius:6px; background:#fff; color:#555; cursor:pointer;")
+    html = (
+        f'<div style="display:flex; justify-content:flex-end; margin-bottom:6px;">'
+        f'<button id="{tid}_cpy" onclick="copyN(\'{tid}\')" style="{btn_style}" '
+        f'title="표 전체를 복사해 엑셀·구글시트에 붙여넣을 수 있어요">&#128203; 복사</button></div>'
+        '<div style="overflow:auto; max-height:640px; border-radius:8px; border:1px solid #e0e0e0;">'
+        f'<table id="{tid}" style="table-layout:fixed; width:{total_w}px; border-collapse:collapse;">'
+        f'{colgroup}<thead><tr>{hdr}</tr></thead><tbody>{bdy}</tbody></table></div>'
+        f'<script>{js}</script>'
+    )
+    height = min(700, 96 + len(df) * 33)
+    components.html(html, height=height, scrolling=False)
 def build_summary_table(data: pd.DataFrame, group_col: str, label_fn=None) -> pd.DataFrame:
     data = data.copy()
     if "ThruPlay" not in data.columns:
@@ -1096,3 +1225,17 @@ with tab2:
     adset_tbl = adset_tbl.rename(columns={"광고그룹명": "광고세트"})
     st.markdown("**🗂 광고세트별 성과**")
     render_table_paged(STYLE(adset_tbl, "광고세트"), "adset")
+    # --- 광고세트 → 소재 2단, 매체별 비용·조회당비용 (엑셀 성과표 형태) ---
+    st.markdown("---")
+    st.markdown("**🎬 광고세트·소재별 매체 성과**")
+    st.caption("광고세트(진한 행) 아래 개별 소재를 펼쳐 매체별 비용·조회당비용을 나란히 봅니다. "
+               "조회당비용 = 광고비÷조회수(ThruPlay), 조회수 없는 소재는 '-'. "
+               "유튜브 데이터가 들어오면 열이 자동으로 추가됩니다. "
+               "좌측 필터·최소 광고비 필터가 그대로 적용됩니다.")
+    nested_tbl, _medias = build_set_creative_media(fdf, min_spend=min_spend)
+    if nested_tbl.empty:
+        st.info("표시할 데이터가 없어요. (필터 또는 최소 광고비 조건을 확인해주세요)")
+    else:
+        if link_map:
+            st.caption("소재명을 클릭하면 인스타 광고페이지가 열려요 🔗")
+        render_nested_media_table(nested_tbl)
