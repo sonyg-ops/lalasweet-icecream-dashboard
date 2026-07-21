@@ -344,6 +344,63 @@ def build_set_creative_media(data: pd.DataFrame, min_spend: float = 0):
     out = pd.DataFrame(rows, columns=display_cols + ["_isset", "_link"]) if rows else \
           pd.DataFrame(columns=display_cols + ["_isset", "_link"])
     return out, medias
+def _clean_person(v):
+    """PD/디자이너·마케터 값 중 사람 이름(한글 2~4자)만 남기고 날짜·'~팀'·카테고리 단어는 버림."""
+    s = str(v).strip()
+    if _HANGUL_NAME.match(s) and not s.endswith("팀") and s not in _NON_NAME:
+        return s
+    return None
+def build_deroul_channel_summary(data: pd.DataFrame, min_spend: float = 0) -> pd.DataFrame:
+    """소분류 연출별로 담당자(PD/디자이너)와 채널(메타·틱톡·유튜브)의 통합·개별 비용/조회당비용을
+    한 행으로 펼친다. 반환: 표시용 DataFrame(맨 끝 '총합계' 행 포함).
+    조회당비용 = 광고비÷조회수(ThruPlay), 조회수 없으면 '-'. 유튜브는 데이터가 들어오면 자동 반영."""
+    d = data.copy()
+    if "ThruPlay" not in d.columns:
+        d["ThruPlay"] = 0
+    d["매체"] = d["매체"].astype(str).str.strip()
+    d = d[(d["매체"] != "") & (d["매체"] != "nan")]
+    d["소분류 연출"] = (d["소분류 연출"].fillna("(미지정)").astype(str).str.strip()
+                       .replace({"": "(미지정)", "nan": "(미지정)", "None": "(미지정)", "<NA>": "(미지정)"}))
+    medias = MEDIA_ORDER   # 항상 메타·틱톡·유튜브 순서로 3채널을 노출
+    g = (d.groupby(["소분류 연출", "매체"], observed=True)
+           .agg(spend=("광고비 (KRW)", "sum"), thru=("ThruPlay", "sum")).reset_index())
+    spend_p = g.pivot_table(index="소분류 연출", columns="매체", values="spend", aggfunc="sum", fill_value=0)
+    thru_p  = g.pivot_table(index="소분류 연출", columns="매체", values="thru",  aggfunc="sum", fill_value=0)
+    for m in medias:
+        if m not in spend_p.columns: spend_p[m] = 0
+        if m not in thru_p.columns:  thru_p[m]  = 0
+    spend_p["_통합"] = spend_p[medias].sum(axis=1)
+    thru_p["_통합"]  = thru_p[medias].sum(axis=1)
+    # 소분류 연출 → 담당자(PD/디자이너) 정제·중복제거 후 나열
+    owner_map = {}
+    if "PD/디자이너" in d.columns:
+        d["_담당"] = d["PD/디자이너"].apply(_clean_person)
+        owner_map = (d[d["_담당"].notna()].groupby("소분류 연출", observed=True)["_담당"]
+                     .apply(lambda s: ", ".join(sorted(set(s)))).to_dict())
+    def _cost(v):  return f"{int(round(v)):,}" if v else "0"
+    def _cpv(spend, thru):  return f"{int(round(spend / thru)):,}" if thru > 0 else "-"
+    first_col = "소분류 연출"
+    cols = [first_col, "담당자", "채널통합 비용(원)", "채널통합 조회당비용(원)"]
+    for m in medias:
+        cols += [f"{MEDIA_LABEL.get(m, m)} 비용(원)", f"{MEDIA_LABEL.get(m, m)} 조회당비용(원)"]
+    rows = []
+    for der, set_spend in spend_p["_통합"].sort_values(ascending=False).items():
+        if min_spend and set_spend < min_spend:
+            continue
+        row = {first_col: der, "담당자": owner_map.get(der, "") or "-",
+               "채널통합 비용(원)": _cost(spend_p.loc[der, "_통합"]),
+               "채널통합 조회당비용(원)": _cpv(spend_p.loc[der, "_통합"], thru_p.loc[der, "_통합"])}
+        for m in medias:
+            row[f"{MEDIA_LABEL.get(m, m)} 비용(원)"] = _cost(spend_p.loc[der, m])
+            row[f"{MEDIA_LABEL.get(m, m)} 조회당비용(원)"] = _cpv(spend_p.loc[der, m], thru_p.loc[der, m])
+        rows.append(row)
+    total = {first_col: "총합계", "담당자": "",
+             "채널통합 비용(원)": _cost(spend_p["_통합"].sum()),
+             "채널통합 조회당비용(원)": _cpv(spend_p["_통합"].sum(), thru_p["_통합"].sum())}
+    for m in medias:
+        total[f"{MEDIA_LABEL.get(m, m)} 비용(원)"] = _cost(spend_p[m].sum())
+        total[f"{MEDIA_LABEL.get(m, m)} 조회당비용(원)"] = _cpv(spend_p[m].sum(), thru_p[m].sum())
+    return pd.DataFrame(rows + [total], columns=cols)
 def render_nested_media_table(df: pd.DataFrame) -> None:
     """build_set_creative_media 결과를 세트 합계행(진한 배경) + 소재행 중첩 표로 렌더."""
     tid = "ntbl_" + uuid.uuid4().hex[:8]
@@ -1087,7 +1144,7 @@ render_kpi_view = render_kpi_aw if IS_AW else render_kpi
 render_update_buttons()
 # 빙과 대시보드: 제과 전용 탭(단쉐·팝콘)은 제거하고 전체 요약만 사용.
 # (빙과 제품별 탭은 백필로 데이터가 쌓여 실제 제품코드를 확인한 뒤 추가 예정)
-tab1, tab2 = st.tabs(["📊 전체 요약", "🧩 분류별 성과"])
+tab1, tab2, tab3 = st.tabs(["📊 전체 요약", "🧩 분류별 성과", "📺 채널별 성과"])
 # --- TAB 1: 전체 요약 ---
 with tab1:
     render_kpi_view(kpi)
@@ -1239,3 +1296,17 @@ with tab2:
         if link_map:
             st.caption("소재명을 클릭하면 인스타 광고페이지가 열려요 🔗")
         render_nested_media_table(nested_tbl)
+# --- TAB 3: 채널별 성과 (소분류 연출 × 담당자 × 채널별 비용·조회당비용) ---
+with tab3:
+    render_kpi_view(kpi)
+    st.markdown("---")
+    st.markdown("**📺 소분류 연출별 채널 성과**")
+    st.caption("소분류 연출별로 담당자(PD/디자이너)와 채널통합·메타·틱톡·유튜브 비용, 조회당비용을 나란히 봅니다. "
+               "조회당비용 = 광고비÷조회수(ThruPlay), 조회수 없는 항목은 '-'. "
+               "유튜브 데이터가 들어오면 자동으로 채워집니다. "
+               "좌측 필터·최소 광고비 필터가 그대로 적용됩니다.")
+    ch_tbl = build_deroul_channel_summary(fdf, min_spend=min_spend)
+    if ch_tbl[ch_tbl["소분류 연출"] != "총합계"].empty:
+        st.info("표시할 데이터가 없어요. (필터 또는 최소 광고비 조건을 확인해주세요)")
+    else:
+        render_table_paged(ch_tbl, "deroul_channel", page_size=20)
