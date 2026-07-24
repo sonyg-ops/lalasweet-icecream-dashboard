@@ -99,7 +99,11 @@ _backfill_since = os.environ.get("BACKFILL_SINCE", "").strip()
 _backfill_until = os.environ.get("BACKFILL_UNTIL", "").strip()
 IS_BACKFILL = bool(_backfill_since and _backfill_until)
 
-today = datetime.date.today()
+# GitHub Actions 러너는 UTC이므로 '오늘/어제'는 반드시 KST 기준으로 계산한다.
+# (UTC로 계산하면 07:00 KST=전날 22:00 UTC 실행 시 하루 밀려 전전날을 가져온다.
+#  유튜브(google_sheet_to_raw.py)와 동일한 방식으로 맞춤.)
+_KST  = datetime.timezone(datetime.timedelta(hours=9))
+today = datetime.datetime.now(_KST).date()
 
 if IS_BACKFILL:
     since = datetime.date.fromisoformat(_backfill_since)

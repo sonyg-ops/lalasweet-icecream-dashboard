@@ -107,7 +107,11 @@ def tt_get(endpoint, params):
     die("TikTok API 재시도 모두 소진")
 
 # ── 날짜 범위 ──────────────────────────────────────────────────
-today = datetime.date.today()
+# GitHub Actions 러너는 UTC이므로 '오늘/어제'는 반드시 KST 기준으로 계산한다.
+# (UTC로 계산하면 07:00 KST=전날 22:00 UTC 실행 시 하루 밀려 전전날을 가져온다.
+#  유튜브(google_sheet_to_raw.py)와 동일한 방식으로 맞춤.)
+_KST  = datetime.timezone(datetime.timedelta(hours=9))
+today = datetime.datetime.now(_KST).date()
 
 # 백필 모드: 환경변수 BACKFILL_SINCE / BACKFILL_UNTIL 우선
 _backfill_since = os.environ.get("BACKFILL_SINCE", "").strip()
