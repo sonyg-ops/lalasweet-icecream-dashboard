@@ -944,3 +944,4 @@
 [2026-07-24 12:34:53] spend > 0 행: 34개
 [2026-07-24 12:34:53] 마지막 성공 날짜 갱신: 2026-07-23
 [2026-07-24 12:34:53] 완료: 34행 -> /home/runner/work/lalasweet-icecream-dashboard/lalasweet-icecream-dashboard/data/tiktok_raw_2026-07-23_2026-07-23.csv
+[2026-07-24 13:12:58] 받을 새 데이터 없음 (이미 2026-07-23까지 수집 완료) -> 종료
