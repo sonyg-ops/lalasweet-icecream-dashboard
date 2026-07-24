@@ -10,7 +10,9 @@
  *   영상 광고 객체(AdsApp.videoAds) + Stats.getViews() 로 수집한다.
  *
  * 출력: 통합RD_원본과 동일한 33컬럼 헤더로 기록 (소재명 파싱값 채움, 메타/틱톡 인지 행과 동일 형식).
- *   유튜브=인지 → 전환수·CPA·인스타링크는 공란, 조회수→ThruPlay, 결과당비용=광고비÷조회수.
+ *   유튜브=인지 → 전환수·CPA는 공란, 조회수→ThruPlay, 결과당비용=광고비÷조회수.
+ *   소재링크 = 유튜브 영상의 watch 링크(youtube.com/watch?v=…). 영상 ID는 GAQL로 조회.
+ *   ※ 영상 ID 조회 방식은 계정마다 다를 수 있어 첫 실행 로그로 확인 필요(못 찾으면 링크만 공란, 수집은 정상).
  */
 
 // ===== 설정 (여기 두 줄만 채우면 됨) =====
@@ -26,12 +28,14 @@ var END_DATE   = '';
 var HEADER = ['날짜','매체','광고목적','캠페인명','광고그룹명','소재명',
   '제작월','채널구분','영상/이미지 구분','제품코드','광고종류','스킴명','대분류 포맷','소분류 연출',
   '배리에이션 여부','지면 유형','상세연출(소재구분)','프로젝트','파트 구분','마케터','집행시작일','본부 구분','PD/디자이너',
-  '노출','클릭','CTR (%)','광고비 (KRW)','CPC (KRW)','전환수','CPA (KRW)','ThruPlay','결과당비용','인스타링크'];
+  '노출','클릭','CTR (%)','광고비 (KRW)','CPC (KRW)','전환수','CPA (KRW)','ThruPlay','결과당비용','소재링크'];
 
 function main() {
   var dates = datesToCollect();          // ['2026-07-20', ...]
   var out = [];
   var newDates = {};
+
+  var ytLink = buildYoutubeLinkMap();    // 소재명 → 유튜브 watch 링크 (없으면 공란)
 
   var ads = AdsApp.videoAds().get();     // 계정의 모든 영상 광고
   var adList = [];
@@ -74,13 +78,55 @@ function main() {
       out.push(
         [ymd, 'YouTube', '인지', campaign, adGroup, adName]
           .concat(parsed)
-          .concat([imps, clks, ctr, spend, cpc, 0, '', views, resultCost, ''])
+          .concat([imps, clks, ctr, spend, cpc, 0, '', views, resultCost, ytLink[adName] || ''])
       );
     }
   }
 
   writeToSheet(out, newDates);
   Logger.log('수집 완료: ' + out.length + '행 (' + dates.length + '일)');
+}
+
+// ===== 소재명(ad name) → 유튜브 watch 링크 =====
+// 영상 광고가 참조하는 유튜브 영상 ID를 GAQL로 찾아 watch 링크를 만든다.
+//  1) asset 리소스에서 (asset 리소스명 → 유튜브 영상 ID) 사전을 만들고,
+//  2) ad_group_ad 에서 (소재명 → 그 소재의 영상 asset) 을 찾아 1)로 영상 ID를 해석한다.
+// ※ 계정/광고형식에 따라 필드가 달라 못 찾을 수 있음. 실패해도 빈 맵을 반환(수집은 정상).
+function buildYoutubeLinkMap() {
+  var map = {};      // 소재명 → watch URL
+  try {
+    // 1) asset 리소스명 → 유튜브 영상 ID
+    var assetVid = {};
+    var arows = AdsApp.search(
+      "SELECT asset.resource_name, asset.youtube_video_asset.youtube_video_id " +
+      "FROM asset WHERE asset.type = 'YOUTUBE_VIDEO'");
+    while (arows.hasNext()) {
+      var a = arows.next();
+      var rn = a.asset && a.asset.resourceName;
+      var vid = a.asset && a.asset.youtubeVideoAsset && a.asset.youtubeVideoAsset.youtubeVideoId;
+      if (rn && vid) { assetVid[rn] = vid; }
+    }
+    // 2) 소재명 → 영상 asset → 영상 ID → watch URL
+    var grows = AdsApp.search(
+      "SELECT ad_group_ad.ad.name, ad_group_ad.ad.video_responsive_ad.videos " +
+      "FROM ad_group_ad " +
+      "WHERE ad_group_ad.ad.type = 'VIDEO_RESPONSIVE_AD'");
+    while (grows.hasNext()) {
+      var g = grows.next();
+      var ad = g.adGroupAd && g.adGroupAd.ad;
+      if (!ad || !ad.name) { continue; }
+      var vids = ad.videoResponsiveAd && ad.videoResponsiveAd.videos;
+      if (!vids || !vids.length) { continue; }
+      for (var i = 0; i < vids.length; i++) {
+        var vid2 = assetVid[vids[i].asset];
+        if (vid2) { map[ad.name] = 'https://www.youtube.com/watch?v=' + vid2; break; }
+      }
+    }
+    Logger.log('유튜브 링크 매핑: ' + Object.keys(map).length + '개 소재');
+  } catch (e) {
+    Logger.log('유튜브 링크 매핑 실패(수집은 계속): ' + e);
+  }
+  return map;
 }
 
 function datesToCollect() {

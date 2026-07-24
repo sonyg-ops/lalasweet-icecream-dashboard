@@ -33,9 +33,14 @@ RD_COLUMNS = [
     # 성과 지표 — 전환광고: 전환수·CPA / 인지광고: ThruPlay·결과당비용
     "노출", "클릭", "CTR (%)", "광고비 (KRW)", "CPC (KRW)", "전환수", "CPA (KRW)",
     "ThruPlay", "결과당비용",
-    # 소재 → 인스타 광고페이지 링크 (fetch_ig_links.py 가 채운 data/ig_links.csv 에서 조인)
-    "인스타링크",
+    # 소재 → 각 매체 광고페이지 링크 (행의 '매체' 기준으로 채움)
+    #  · 메타 = 인스타 영구링크(ig_links.csv) / 틱톡 = 미리보기 링크(tiktok_links.csv, 임시)
+    #  · 유튜브 = watch 영구링크(google_raw 유래, youtube_links.csv 누적)
+    "소재링크",
 ]
+
+# 틱톡·유튜브 링크는 이 날짜부터 집행된 소재만 연결한다 (메타는 전 기간).
+LINK_SINCE = "2026-07-01"
 
 PARSE_COLS = [
     "제작월", "채널구분", "영상/이미지 구분", "제품코드", "광고종류",
@@ -228,6 +233,9 @@ def to_rd_rows(raw: pd.DataFrame, media: str) -> pd.DataFrame:
             "CPA (KRW)":    cpa_out,
             "ThruPlay":     thruplay,
             "결과당비용":   result_cost,
+            # 유튜브 raw(google_sheet_to_raw)만 '소재링크'를 담아 옴 → 아래 매체별 조인에서 활용.
+            # 메타·틱톡 raw엔 없으므로 공란(뒤에서 ig_links / tiktok_links 로 채움).
+            "소재링크":     str(row.get("소재링크", "") or "").strip(),
         })
         records.append(rec)
     return pd.DataFrame(records, columns=RD_COLUMNS) if records else pd.DataFrame(columns=RD_COLUMNS)
@@ -294,17 +302,54 @@ n_fixed = fill_youtube_from_clean(result)
 if n_fixed:
     print(f"유튜브 공백형 소재명 분류 복구: {n_fixed}행 (정상 이름 매칭)")
 
-# 소재명 → 인스타 광고페이지 링크 조인 (data/ig_links.csv, 없거나 빈 값이면 공란)
-IG_PATH = os.path.join(DATA_DIR, "ig_links.csv")
-link_map = {}
-if os.path.exists(IG_PATH):
-    with open(IG_PATH, encoding="utf-8-sig") as f:
-        for r in csv.DictReader(f):
-            u = (r.get("instagram_permalink") or "").strip()
-            if u:
-                link_map[(r.get("소재명") or "").strip()] = u
-    print(f"인스타링크 매핑 로드: {len(link_map)}개")
-result["인스타링크"] = result["소재명"].astype(str).str.strip().map(link_map).fillna("")
+# ── 매체별 소재 링크 조인 (행의 '매체' 기준으로 각 플랫폼 링크를 채움) ──────────
+#   메타 = 인스타 영구링크(전 기간) / 틱톡·유튜브 = LINK_SINCE 이후만
+def _load_link_csv(path, url_field):
+    m = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                n = (r.get("소재명") or "").strip()
+                u = (r.get(url_field) or "").strip()
+                if n and u:
+                    m[n] = u
+    return m
+
+if "소재링크" not in result.columns:
+    result["소재링크"] = ""
+result["소재링크"] = result["소재링크"].fillna("").astype(str).str.strip()
+_name  = result["소재명"].astype(str).str.strip()
+_media = result["매체"].astype(str)
+_date  = result["날짜"].astype(str)
+
+# 1) 메타 → 인스타 영구링크 (전 기간)
+ig_map = _load_link_csv(os.path.join(DATA_DIR, "ig_links.csv"), "instagram_permalink")
+m_meta = _media == "Meta"
+result.loc[m_meta, "소재링크"] = _name[m_meta].map(ig_map).fillna("")
+print(f"메타 인스타링크 매핑: {len(ig_map)}개 소재")
+
+# 2) 유튜브 → watch 영구링크 (LINK_SINCE+). 이번 수집분(raw 유래) 링크를 youtube_links.csv에 누적 후 조인
+YT_PATH = os.path.join(DATA_DIR, "youtube_links.csv")
+yt_map = _load_link_csv(YT_PATH, "youtube_link")
+new_yt = new_df[(new_df["매체"] == "YouTube")
+                & (new_df["소재링크"].fillna("").astype(str).str.strip() != "")]
+for _, rr in new_yt.iterrows():
+    yt_map[str(rr["소재명"]).strip()] = str(rr["소재링크"]).strip()
+with open(YT_PATH, "w", encoding="utf-8-sig", newline="") as f:
+    w = csv.writer(f); w.writerow(["소재명", "youtube_link"])
+    for n in sorted(yt_map):
+        w.writerow([n, yt_map[n]])
+m_yt = (_media == "YouTube") & (_date >= LINK_SINCE)
+result.loc[m_yt, "소재링크"] = _name[m_yt].map(yt_map).fillna("")
+result.loc[(_media == "YouTube") & (_date < LINK_SINCE), "소재링크"] = ""
+print(f"유튜브 watch링크 매핑: {len(yt_map)}개 소재 (누적)")
+
+# 3) 틱톡 → 미리보기 링크 (LINK_SINCE+, 임시 URL)
+tt_map = _load_link_csv(os.path.join(DATA_DIR, "tiktok_links.csv"), "tiktok_link")
+m_tt = (_media == "TikTok") & (_date >= LINK_SINCE)
+result.loc[m_tt, "소재링크"] = _name[m_tt].map(tt_map).fillna("")
+result.loc[(_media == "TikTok") & (_date < LINK_SINCE), "소재링크"] = ""
+print(f"틱톡 미리보기링크 매핑: {len(tt_map)}개 소재")
 
 # 컬럼 누락 방지 + 순서 고정
 for c in RD_COLUMNS:

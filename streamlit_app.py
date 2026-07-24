@@ -126,29 +126,63 @@ PRODUCT_GROUP = {code: grp for grp, codes in PRODUCT_GROUPS.items() for code in 
 # =============================================================
 def _esc(v) -> str:
     return _html.escape(str(v))
+# 대표 링크(소재명 클릭 시): 영구링크(메타·유튜브)를 임시링크(틱톡)보다 우선.
+LINK_PRIORITY = ["Meta", "YouTube", "TikTok"]
+def build_link_maps(d: pd.DataFrame):
+    """소재명 → 매체별 링크를 모아 두 맵을 돌려준다.
+      · chips: 소재명 → 매체별 링크 칩 HTML(있는 매체만 [메타][틱톡][유튜브])
+      · prio : 소재명 → 대표 링크 URL(이름 하이퍼링크용, LINK_PRIORITY 순)
+    한 소재가 여러 매체에 걸쳐 있어도 각 매체 링크를 각각 보여주기 위함."""
+    chips, prio = {}, {}
+    if "소재링크" not in d.columns:
+        return chips, prio
+    lk = d[["소재명", "매체", "소재링크"]].copy()
+    for c in lk.columns:
+        lk[c] = lk[c].astype(str).str.strip()
+    lk = lk[(lk["소재링크"] != "") & (lk["소재링크"] != "nan")]
+    for name, g in lk.groupby("소재명", observed=True):
+        seen = {}
+        for _, r in g.iterrows():
+            seen.setdefault(r["매체"], r["소재링크"])   # 매체별 첫 링크
+        ordered = [(m, seen[m]) for m in MEDIA_ORDER if m in seen]
+        if not ordered:
+            continue
+        chips[name] = "".join(
+            f'<a href="{_esc(url)}" target="_blank" rel="noopener" '
+            f'style="display:inline-block;padding:1px 8px;margin:1px 4px 1px 0;'
+            f'border-radius:10px;background:#eef2ff;color:#1a73e8;'
+            f'text-decoration:none;font-size:0.75rem;white-space:nowrap;">'
+            f'{_esc(MEDIA_LABEL.get(m, m))}&nbsp;&#128279;</a>'
+            for m, url in ordered
+        )
+        prio[name] = next((seen[m] for m in LINK_PRIORITY if m in seen), ordered[0][1])
+    return chips, prio
 COL_WIDTHS = {
     "광고비": 120, "CPA": 100, "CPC": 95, "CVR": 80, "CTR": 80,
-    "노출": 115, "링크 클릭": 95, "구매": 85, "소재 링크": 240,
+    "노출": 115, "링크 클릭": 95, "구매": 85, "소재 링크": 240, "링크": 175,
 }
 def _col_width(i: int, name) -> int:
+    # table-layout:auto 에서 이 값은 '최소 너비'로 작동. 내용이 길면 열이 자동으로 넓어진다.
     if i == 0:
-        return 190            # 첫 열(소재명 등)은 넓게 — 길면 말줄임 표시
+        return 190            # 첫 열(소재명 등) 최소 너비
     return COL_WIDTHS.get(str(name), 95)
-def render_pinned_total_table(df: pd.DataFrame, link_col: str = None) -> None:
+def render_pinned_total_table(df: pd.DataFrame, link_col: str = None,
+                              html_cols=None) -> None:
     tid = "tbl_" + uuid.uuid4().hex[:8]
+    html_cols = set(html_cols or ())   # 값을 이스케이프하지 않고 raw HTML로 렌더할 열(예: 링크 칩)
     cols = [c for c in df.columns if c != link_col]   # link_col은 표시 안 하고 링크용으로만 사용
     first_col = cols[0]
     data  = df[df[first_col] != "총합계"].reset_index(drop=True)
     total = df[df[first_col] == "총합계"]
+    # 열 너비 자동 맞춤: 내용에 맞게 열이 넓어지고 글자가 잘리지 않는다(말줄임 제거).
+    # 한 줄 유지(white-space:nowrap) → 행 높이는 그대로, 긴 소재명은 가로 스크롤로 확인.
     th = ("position:relative; padding:0; text-align:left; background:#f0f2f6;"
-          "border-bottom:2px solid #ddd; font-size:0.82rem; overflow:hidden;")
-    hd = ("padding:7px 10px; overflow:hidden; text-overflow:ellipsis;"
-          "white-space:nowrap; cursor:pointer; user-select:none;")
+          "border-bottom:2px solid #ddd; font-size:0.82rem;")
+    hd = ("padding:7px 10px; white-space:nowrap; cursor:pointer; user-select:none;")
     rz = "position:absolute; top:0; right:0; width:6px; height:100%; cursor:col-resize;"
     td = ("padding:6px 10px; border-bottom:1px solid #eee; font-size:0.82rem;"
-          "white-space:nowrap; overflow:hidden; text-overflow:ellipsis;")
+          "white-space:nowrap;")
     tf = (f"padding:6px 10px; font-size:0.82rem; white-space:nowrap;"
-          f"overflow:hidden; text-overflow:ellipsis;"
           f"background:{TOTAL_BG}; color:{TOTAL_FG}; font-weight:{TOTAL_FONT};"
           f"border-top:2px solid #ddd;")
     widths  = [_col_width(i, c) for i, c in enumerate(cols)]
@@ -163,6 +197,8 @@ def render_pinned_total_table(df: pd.DataFrame, link_col: str = None) -> None:
     )
     def _cell(row, col, style):
         v = row[col]
+        if col in html_cols:   # 이미 만들어진 HTML(링크 칩 등)을 그대로 넣음
+            return f'<td style="{style}">{v}</td>'
         if link_col and col == first_col:
             url = str(row.get(link_col, "") or "").strip()
             if url:
@@ -242,7 +278,7 @@ def render_pinned_total_table(df: pd.DataFrame, link_col: str = None) -> None:
         f'<button id="{tid}_cpy" onclick="copyTbl(\'{tid}\')" style="{btn_style}" '
         f'title="표 전체를 복사해 엑셀·구글시트에 붙여넣을 수 있어요">&#128203; 복사</button></div>'
         '<div style="overflow-x:auto; border-radius:8px; border:1px solid #e0e0e0;">'
-        f'<table id="{tid}" style="table-layout:fixed; width:{total_w}px; border-collapse:collapse;">'
+        f'<table id="{tid}" style="table-layout:auto; min-width:100%; width:auto; border-collapse:collapse;">'
         f'{colgroup}'
         f'<thead><tr>{hdr}</tr></thead>'
         f'<tbody>{bdy}</tbody>'
@@ -260,7 +296,8 @@ def _page_less(sk: str, page_size: int) -> None:
 def _reset_keys(keys) -> None:
     for k in keys:
         st.session_state[k] = []
-def render_table_paged(df: pd.DataFrame, key: str, page_size: int = 10, link_col: str = None) -> None:
+def render_table_paged(df: pd.DataFrame, key: str, page_size: int = 10, link_col: str = None,
+                       html_cols=None) -> None:
     """상위 page_size개(+총합계)만 보여주고 '더보기'로 10개씩 펼침.
     총합계 행은 펼침과 무관하게 항상 전체 기준으로 표시."""
     first_col = next((c for c in df.columns if c != link_col), df.columns[0])
@@ -268,12 +305,12 @@ def render_table_paged(df: pd.DataFrame, key: str, page_size: int = 10, link_col
     total = df[df[first_col] == "총합계"]
     n = len(data)
     if n <= page_size:
-        render_pinned_total_table(df, link_col=link_col)
+        render_pinned_total_table(df, link_col=link_col, html_cols=html_cols)
         return
     sk = f"shown_{key}"
     shown = min(st.session_state.get(sk, page_size), n)
     view = pd.concat([data.head(shown), total], ignore_index=True)
-    render_pinned_total_table(view, link_col=link_col)
+    render_pinned_total_table(view, link_col=link_col, html_cols=html_cols)
     remaining = n - shown
     c1, c2, c3 = st.columns([1.6, 1.2, 5], vertical_alignment="center")
     if remaining > 0:
@@ -304,13 +341,8 @@ def build_set_creative_media(data: pd.DataFrame, min_spend: float = 0):
         if m not in spend_p.columns: spend_p[m] = 0
         if m not in thru_p.columns:  thru_p[m]  = 0
     spend_p["_통합"] = spend_p[medias].sum(axis=1)
-    # 소재명 → 인스타링크 (있으면)
-    link_map = {}
-    if "인스타링크" in d.columns:
-        lk = d[["소재명", "인스타링크"]].copy()
-        lk["인스타링크"] = lk["인스타링크"].astype(str).str.strip()
-        lk = lk[(lk["인스타링크"] != "") & (lk["인스타링크"] != "nan")]
-        link_map = dict(zip(lk["소재명"], lk["인스타링크"]))
+    # 소재명 → 대표 링크 (매체별 링크 중 영구링크 우선; 이름 클릭용)
+    _, link_map = build_link_maps(d)
     def _cost(v):  return f"{int(round(v)):,}" if v else "0"
     def _cpv(spend, thru):  return f"{int(round(spend / thru)):,}" if thru > 0 else "-"
     first_col = "광고세트/소재"
@@ -825,6 +857,10 @@ def load_data() -> pd.DataFrame:
         df = pd.read_parquet(_pq).fillna("")
     else:                                        # 전환기 폴백: 구 CSV 마스터
         df = pd.read_csv(_csv, encoding="utf-8-sig", dtype=str).fillna("")
+    # 링크 열 이름 전환 대응: 옛 마스터('인스타링크')도 '소재링크'로 읽어들인다.
+    # 단, 옛 열은 채널 무관하게 인스타 링크였으므로 메타 행만 유효(틱톡·유튜브는 build_rd 재빌드 전까지 공란).
+    if "소재링크" not in df.columns and "인스타링크" in df.columns:
+        df["소재링크"] = df["인스타링크"].where(df["매체"].astype(str) == "Meta", "")
     df["날짜"] = pd.to_datetime(df["날짜"], errors="coerce")
     for col in ["광고비 (KRW)", "노출", "클릭", "전환수", "CTR (%)", "CPA (KRW)",
                 "CPC (KRW)", "영상조회 3초+", "ThruPlay", "결과당비용"]:
@@ -866,7 +902,7 @@ def load_data() -> pd.DataFrame:
         "제작월", "채널구분", "영상/이미지 구분", "제품코드", "제품군", "광고종류",
         "스킴명", "대분류 포맷", "소분류 연출", "배리에이션 여부", "지면 유형",
         "상세연출(소재구분)", "프로젝트", "파트 구분", "마케터", "집행시작일",
-        "본부 구분", "PD/디자이너", "인스타링크", "연", "월", "일",
+        "본부 구분", "PD/디자이너", "소재링크", "연", "월", "일",
     ]
     for _c in _cat_cols:
         if _c in df.columns:
@@ -1031,33 +1067,14 @@ with st.sidebar:
               on_click=_reset_keys, args=(["f_format", "f_deroul"],),
               use_container_width=True)
     st.markdown("---")
-    st.markdown("**🅜 Meta/TikTok 구조**")
-    st.caption("↓ 캠페인부터 고르면 아래 목록이 좁혀져요")
-    # 캠페인
-    st.markdown("**📢 캠페인**")
-    camp_opts = valid_opts(df_scope, "캠페인명")
-    if "f_campaign" in st.session_state:
-        st.session_state["f_campaign"] = [x for x in st.session_state["f_campaign"] if x in camp_opts]
-    sel_campaign = st.multiselect("캠페인", camp_opts, placeholder="전체",
-                                  key="f_campaign", label_visibility="collapsed")
-    # 광고세트 (선택 캠페인으로 좁힘)
-    st.markdown("**🗂 광고세트**")
-    _df_c = df_scope[df_scope["캠페인명"].astype(str).isin(sel_campaign)] if sel_campaign else df_scope
-    adset_opts = valid_opts(_df_c, "광고그룹명")
-    if "f_adset" in st.session_state:
-        st.session_state["f_adset"] = [x for x in st.session_state["f_adset"] if x in adset_opts]
-    sel_adset = st.multiselect("광고세트", adset_opts, placeholder="전체",
-                               key="f_adset", label_visibility="collapsed")
-    # 소재 (선택 캠페인+광고세트로 좁힘)
-    st.markdown("**🖼 소재**")
-    _df_ca = _df_c[_df_c["광고그룹명"].astype(str).isin(sel_adset)] if sel_adset else _df_c
-    creative_opts = valid_opts(_df_ca, "소재명")
+    st.markdown("**🖼 소재 검색**")
+    creative_opts = valid_opts(df_scope, "소재명")
     if "f_creative" in st.session_state:
         st.session_state["f_creative"] = [x for x in st.session_state["f_creative"] if x in creative_opts]
     sel_creative = st.multiselect("소재", creative_opts, placeholder="전체",
                                   key="f_creative", label_visibility="collapsed")
-    st.button("↩️ Meta/TikTok 구조 초기화", key="rst_meta",
-              on_click=_reset_keys, args=(["f_campaign", "f_adset", "f_creative"],),
+    st.button("↩️ 소재 초기화", key="rst_creative",
+              on_click=_reset_keys, args=(["f_creative"],),
               use_container_width=True)
     st.markdown("---")
     if st.button("🔄 데이터 새로고침"):
@@ -1096,10 +1113,6 @@ if sel_prodgroup:
     mask &= df["제품군"].astype(str).isin(sel_prodgroup)
 if sel_prodcode:
     mask &= df["제품코드"].astype(str).isin(sel_prodcode)
-if sel_campaign:
-    mask &= df["캠페인명"].astype(str).isin(sel_campaign)
-if sel_adset:
-    mask &= df["광고그룹명"].astype(str).isin(sel_adset)
 if sel_creative:
     mask &= df["소재명"].astype(str).isin(sel_creative)
 if sel_format:
@@ -1124,10 +1137,6 @@ if sel_prodgroup:
     mask_month_trend &= df["제품군"].astype(str).isin(sel_prodgroup)
 if sel_prodcode:
     mask_month_trend &= df["제품코드"].astype(str).isin(sel_prodcode)
-if sel_campaign:
-    mask_month_trend &= df["캠페인명"].astype(str).isin(sel_campaign)
-if sel_adset:
-    mask_month_trend &= df["광고그룹명"].astype(str).isin(sel_adset)
 if sel_creative:
     mask_month_trend &= df["소재명"].astype(str).isin(sel_creative)
 if sel_format:
@@ -1246,22 +1255,16 @@ with tab2:
     creative_tbl = filter_min_spend(
         sort_summary_by_spend(build_summary_table(fdf, "소재명"), "소재명"), min_spend)
     creative_tbl = creative_tbl.rename(columns={"소재명": "소재"})
-    # 소재명 → 인스타링크 매핑 (RD에 '인스타링크' 열이 있을 때만; 없으면 링크 없이 표시)
-    link_map = {}
-    if "인스타링크" in fdf.columns:
-        _lk = fdf[["소재명", "인스타링크"]].copy()
-        _lk["인스타링크"] = _lk["인스타링크"].astype(str).str.strip()
-        _lk = _lk[_lk["인스타링크"] != ""]
-        link_map = dict(zip(_lk["소재명"], _lk["인스타링크"]))
+    # 소재명 → 매체별 링크 칩 + 대표 링크 (한 소재가 여러 매체면 각 매체 링크를 각각 표시)
+    chips_map, link_map = build_link_maps(fdf)
     st.markdown("**🖼 소재별 성과**")
-    if link_map:
-        st.caption("소재명을 클릭하면 인스타 광고페이지가 열려요 🔗")
+    if chips_map:
+        st.caption("소재명 또는 오른쪽 링크 칩(메타·틱톡·유튜브)을 클릭하면 각 매체 광고 페이지가 열려요 🔗")
     styled_creative = STYLE(creative_tbl, "소재")
-    styled_creative["_link"] = styled_creative["소재"].map(link_map).fillna("")
-    # 맨 끝에 '소재 링크' 열 추가 — 표를 복사해 노션에 붙여도 링크가 텍스트로 따라가게 함
-    # (소재명에 걸린 하이퍼링크는 _link로 그대로 유지)
-    styled_creative["소재 링크"] = styled_creative["_link"]
-    render_table_paged(styled_creative, "creative", link_col="_link")
+    styled_creative["_link"] = styled_creative["소재"].map(link_map).fillna("")   # 이름 클릭 = 대표 링크
+    # 맨 끝 '링크' 열: 매체별 링크 칩(있는 매체만). 없으면 공란.
+    styled_creative["링크"] = styled_creative["소재"].map(chips_map).fillna("")
+    render_table_paged(styled_creative, "creative", link_col="_link", html_cols={"링크"})
     st.markdown("---")
     # --- 포맷·연출별 성과 (항상 표시. 좌측 필터를 고르면 그 범위로 좁혀짐) ---
     st.markdown("**🎨 포맷·연출별 성과**")
@@ -1282,27 +1285,13 @@ with tab2:
     # --- Meta 구조별 성과 (항상 표시) ---
     st.markdown("---")
     st.markdown("**🅜 Meta/TikTok 구조별 성과**")
-    st.caption("좌측 Meta/TikTok 구조 필터를 선택하면 그 범위로 좁혀집니다 (미선택 시 전체)")
+    st.caption("좌측 필터·최소 광고비 필터가 그대로 적용됩니다 (미선택 시 전체)")
     # 광고세트별
     adset_tbl = filter_min_spend(
         sort_summary_by_spend(build_summary_table(fdf, "광고그룹명"), "광고그룹명"), min_spend)
     adset_tbl = adset_tbl.rename(columns={"광고그룹명": "광고세트"})
     st.markdown("**🗂 광고세트별 성과**")
     render_table_paged(STYLE(adset_tbl, "광고세트"), "adset")
-    # --- 광고세트 → 소재 2단, 매체별 비용·조회당비용 (엑셀 성과표 형태) ---
-    st.markdown("---")
-    st.markdown("**🎬 광고세트·소재별 매체 성과**")
-    st.caption("광고세트(진한 행) 아래 개별 소재를 펼쳐 매체별 비용·조회당비용을 나란히 봅니다. "
-               "조회당비용 = 광고비÷조회수(ThruPlay), 조회수 없는 소재는 '-'. "
-               "유튜브 데이터가 들어오면 열이 자동으로 추가됩니다. "
-               "좌측 필터·최소 광고비 필터가 그대로 적용됩니다.")
-    nested_tbl, _medias = build_set_creative_media(fdf, min_spend=min_spend)
-    if nested_tbl.empty:
-        st.info("표시할 데이터가 없어요. (필터 또는 최소 광고비 조건을 확인해주세요)")
-    else:
-        if link_map:
-            st.caption("소재명을 클릭하면 인스타 광고페이지가 열려요 🔗")
-        render_nested_media_table(nested_tbl)
 # --- TAB 3: 채널별 성과 (소분류 연출 × 담당자 × 채널별 비용·조회당비용) ---
 with tab3:
     render_kpi_view(kpi)

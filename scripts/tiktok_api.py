@@ -236,6 +236,7 @@ for r in all_rows:
         conversions = _to_int(m.get("conversion", 0))
     out.append({
         "date":          d.get("stat_time_day", "")[:10],
+        "ad_id":         d.get("ad_id", ""),   # 소재 미리보기 링크 조회(fetch_tiktok_links.py)용
         "campaign_name": cn,
         "adset_name":    m.get("adgroup_name", ""),
         "ad_name":       m.get("ad_name", ""),
@@ -257,7 +258,7 @@ with open(out_path, "w", encoding="utf-8-sig", newline="") as f:
         writer.writerows(out)
     else:
         # 지출이 없는 날에도 파일 생성 (빈 헤더)
-        f.write("date,campaign_name,adset_name,ad_name,impressions,clicks,spend,conversions,thruplay,광고목적\n")
+        f.write("date,ad_id,campaign_name,adset_name,ad_name,impressions,clicks,spend,conversions,thruplay,광고목적\n")
 
 if not IS_BACKFILL:
     with open(STATE_PATH, "w", encoding="utf-8") as f:

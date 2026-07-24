@@ -20,9 +20,9 @@ TAB_NAME       = os.environ.get("GOOGLE_RAW_TAB", "google_raw")
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 OUT_PATH = os.path.join(DATA_DIR, "google_raw_current.csv")
 
-# 컬럼 (메타/틱톡 raw 와 동일)
+# 컬럼 (메타/틱톡 raw + 유튜브 소재링크)
 COLUMNS = ["date", "campaign_name", "adset_name", "ad_name",
-           "impressions", "clicks", "spend", "conversions", "thruplay", "광고목적"]
+           "impressions", "clicks", "spend", "conversions", "thruplay", "광고목적", "소재링크"]
 
 def write_header_only():
     with open(OUT_PATH, "w", encoding="utf-8-sig", newline="") as f:
@@ -76,6 +76,7 @@ SRC = {
     "conversions":   ["전환수", "conversions"],
     "thruplay":      ["ThruPlay", "thruplay"],
     "광고목적":       ["광고목적"],
+    "소재링크":       ["소재링크", "인스타링크"],   # 유튜브 watch 링크(옛 시트는 '인스타링크' 열)
 }
 colpos = {c: next((idx[n] for n in cands if n in idx), None) for c, cands in SRC.items()}
 missing = [c for c, p in colpos.items() if p is None]
