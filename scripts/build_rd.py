@@ -235,7 +235,8 @@ def to_rd_rows(raw: pd.DataFrame, media: str) -> pd.DataFrame:
             "결과당비용":   result_cost,
             # 유튜브 raw(google_sheet_to_raw)만 '소재링크'를 담아 옴 → 아래 매체별 조인에서 활용.
             # 메타·틱톡 raw엔 없으므로 공란(뒤에서 ig_links / tiktok_links 로 채움).
-            "소재링크":     str(row.get("소재링크", "") or "").strip(),
+            # ※ 빈 셀은 pandas NaN → str(NaN or "")='nan' 오염을 막으려 pd.isna로 먼저 거른다.
+            "소재링크":     ("" if pd.isna(row.get("소재링크", "")) else str(row.get("소재링크", "")).strip()),
         })
         records.append(rec)
     return pd.DataFrame(records, columns=RD_COLUMNS) if records else pd.DataFrame(columns=RD_COLUMNS)
@@ -311,7 +312,7 @@ def _load_link_csv(path, url_field):
             for r in csv.DictReader(f):
                 n = (r.get("소재명") or "").strip()
                 u = (r.get(url_field) or "").strip()
-                if n and u:
+                if n and u and u.lower() != "nan":   # 'nan' 문자열 오염 방어
                     m[n] = u
     return m
 
@@ -331,8 +332,8 @@ print(f"메타 인스타링크 매핑: {len(ig_map)}개 소재")
 # 2) 유튜브 → watch 영구링크 (LINK_SINCE+). 이번 수집분(raw 유래) 링크를 youtube_links.csv에 누적 후 조인
 YT_PATH = os.path.join(DATA_DIR, "youtube_links.csv")
 yt_map = _load_link_csv(YT_PATH, "youtube_link")
-new_yt = new_df[(new_df["매체"] == "YouTube")
-                & (new_df["소재링크"].fillna("").astype(str).str.strip() != "")]
+_yt_link = new_df["소재링크"].fillna("").astype(str).str.strip()
+new_yt = new_df[(new_df["매체"] == "YouTube") & (_yt_link != "") & (_yt_link.str.lower() != "nan")]
 for _, rr in new_yt.iterrows():
     yt_map[str(rr["소재명"]).strip()] = str(rr["소재링크"]).strip()
 with open(YT_PATH, "w", encoding="utf-8-sig", newline="") as f:
