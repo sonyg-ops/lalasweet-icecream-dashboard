@@ -167,7 +167,7 @@ if os.path.exists(OUT_PATH):
         for r in csv.DictReader(f):
             n = (r.get("소재명") or "").strip()
             u = (r.get("tiktok_link") or "").strip()
-            if n and u:
+            if n and u and "/embed/" not in u:   # 옛 임베드(단독 미열림) 캐시는 버림
                 links[n] = {"tiktok_link": u, "ad_id": (r.get("ad_id") or "").strip(),
                             "item_id": (r.get("item_id") or "").strip()}
 
