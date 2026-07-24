@@ -60,11 +60,12 @@ jobs:
           LINK_MIN_SPEND: '100000'   # 하루에 이 금액 이상 쓴 소재의 링크를 자동 추가(캐시)
         run: python scripts/fetch_ig_links.py
 
-      - name: 틱톡 소재 미리보기 링크 조회
+      - name: 틱톡 소재 공개(스파크) 링크 조회
         env:
           TIKTOK_ACCESS_TOKEN: ${{ secrets.TIKTOK_ACCESS_TOKEN }}
           TIKTOK_ADVERTISER_ID: ${{ secrets.TIKTOK_ADVERTISER_ID }}
-          LINK_MIN_SPEND: '100000'   # 7/1 이후 이 금액 이상 쓴 소재의 링크(임시)를 매 실행 갱신
+          TIKTOK_HANDLE: ${{ vars.TIKTOK_HANDLE }}   # 브랜드 틱톡 @핸들(identity API 미허가 시 사용)
+          LINK_MIN_SPEND: '100000'   # 7/1 이후 이 금액 이상 쓴 소재의 링크를 매 실행 갱신
         run: python scripts/fetch_tiktok_links.py
 
       - name: 구글애즈(유튜브) 시트 → raw

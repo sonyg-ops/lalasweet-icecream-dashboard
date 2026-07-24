@@ -7,9 +7,10 @@
   (틱톡·유튜브 링크는 7/1부터만 연결하기로 함 → build_rd.py LINK_SINCE 와 동일)
 - 대표 ad_id → /ad/get/ 로 tiktok_item_id(스파크 광고의 원본 게시물 ID) 조회
   → 공개 링크 https://www.tiktok.com/@{handle}/video/{item_id}
-    (handle 은 /identity/get/ 로 best-effort 조회, 못 얻으면 임베드 링크 embed/v2/{item_id} 로 대체 — 둘 다 공개·영구)
+    (handle: /identity/get/ 확보분 우선 → 없으면 환경변수 TIKTOK_HANDLE → 그래도 없으면 링크 생략)
+    ※ 임베드 링크(embed/v2)는 iframe 전용이라 단독으로 안 열려 사용하지 않음
   → item_id 가 없는(업로드형·비스파크) 소재는 공개 게시물이 없어 건너뜀
-- 권한 필요한 /file/video/ad/info/ 를 쓰지 않으므로 추가 API 권한 불필요.
+- /file/video/ad/info/ 미사용. handle 확보에 /identity/get/ 권한이 있으면 자동, 없으면 TIKTOK_HANDLE 로 대체.
 - 결과를 data/tiktok_links.csv (소재명, tiktok_link, ad_id, item_id) 로 저장.
 - tiktok_api 뒤, build_rd 앞에서 실행. 자격증명 없으면 조용히 스킵(기존 링크 유지).
 ※ 첫 실행 로그의 '스파크 소재 N개'·'완료 N개 링크' 로 확인. 링크 없어도 대시보드는 정상 동작.
@@ -148,14 +149,16 @@ for info in adid_item.values():
                 break
         if iid in handle_map:
             break
-log(f"핸들 확보: {len(handle_map)}개 identity (없으면 임베드 링크 사용)")
+log(f"핸들 확보: {len(handle_map)}개 identity (API 미허가 시 TIKTOK_HANDLE 환경변수 사용)")
+
+# 핸들을 API(/identity/get, 권한 필요)로 못 얻을 때 쓸 기본 핸들(브랜드 계정). 환경변수로 지정.
+DEFAULT_HANDLE = os.environ.get("TIKTOK_HANDLE", "").strip().lstrip("@")
 
 def build_link(info):
-    item = info["item_id"]
-    h = handle_map.get(info["identity_id"], "")
-    if h:
-        return f"https://www.tiktok.com/@{h}/video/{item}"       # 공개 게시물 페이지
-    return f"https://www.tiktok.com/embed/v2/{item}"             # 핸들 미확보: 공개 임베드(항상 동작)
+    # 클릭되는 공개 링크는 @핸들/video/{id} 뿐(임베드는 iframe 전용이라 단독으로 안 열림).
+    # 핸들: identity API 확보분 우선, 없으면 TIKTOK_HANDLE. 둘 다 없으면 링크 생략(브로큰 링크 방지).
+    h = handle_map.get(info["identity_id"], "") or DEFAULT_HANDLE
+    return f"https://www.tiktok.com/@{h}/video/{info['item_id']}" if h else ""
 
 # 4) 소재명 → 링크 조립 (기존 캐시 유지 + 이번 대상 갱신)
 links = {}   # 소재명 -> {tiktok_link, ad_id, item_id}
@@ -173,9 +176,12 @@ for aid, name in id_to_name.items():
     info = adid_item.get(aid)
     if not info:
         continue   # 스파크 아님(공개 게시물 없음) → 링크 없음
-    links[name] = {"tiktok_link": build_link(info), "ad_id": aid, "item_id": info["item_id"]}
+    link = build_link(info)
+    if not link:
+        continue   # 핸들 없음(권한·환경변수 모두 없음) → 링크 생략(브로큰 링크 방지)
+    links[name] = {"tiktok_link": link, "ad_id": aid, "item_id": info["item_id"]}
     fresh += 1
-log(f"이번 실행 갱신: {fresh}개 소재 (비스파크는 제외)")
+log(f"이번 실행 갱신: {fresh}개 소재 (비스파크·핸들미확보는 제외)")
 
 # 5) 저장
 with open(OUT_PATH, "w", encoding="utf-8-sig", newline="") as f:
