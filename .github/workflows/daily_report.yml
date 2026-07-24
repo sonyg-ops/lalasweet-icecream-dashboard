@@ -35,7 +35,7 @@ jobs:
           python-version: '3.11'
 
       - name: 패키지 설치
-        run: pip install requests pandas gspread google-auth PyNaCl
+        run: pip install requests pandas pyarrow gspread google-auth PyNaCl
 
       - name: 메타 데이터 수집
         env:

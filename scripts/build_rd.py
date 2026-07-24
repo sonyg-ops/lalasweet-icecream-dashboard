@@ -13,7 +13,8 @@ import os, glob, re, csv
 import pandas as pd
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-MASTER_PATH = os.path.join(DATA_DIR, "통합RD_마스터.csv")
+MASTER_PATH    = os.path.join(DATA_DIR, "통합RD_마스터.parquet")
+MASTER_CSV_OLD = os.path.join(DATA_DIR, "통합RD_마스터.csv")  # 구 포맷 — 있으면 1회 승계 후 미사용
 
 # 백필 모드 감지 (meta_api.py / tiktok_api.py 와 동일한 방식)
 BACKFILL_SINCE = os.environ.get("BACKFILL_SINCE", "").strip()
@@ -255,7 +256,9 @@ if len(new_df) < before:
 
 # 기존 마스터 로드
 if os.path.exists(MASTER_PATH):
-    master = pd.read_csv(MASTER_PATH, encoding="utf-8-sig", dtype=str)
+    master = pd.read_parquet(MASTER_PATH)
+elif os.path.exists(MASTER_CSV_OLD):        # 전환기: 구 CSV 마스터를 1회 승계
+    master = pd.read_csv(MASTER_CSV_OLD, encoding="utf-8-sig", dtype=str)
 else:
     master = pd.DataFrame(columns=RD_COLUMNS)
 
@@ -309,5 +312,7 @@ for c in RD_COLUMNS:
         result[c] = ""
 result = result[RD_COLUMNS]
 
-result.to_csv(MASTER_PATH, index=False, encoding="utf-8-sig")
+# 마스터는 Parquet로 저장(용량·읽기속도↑, git 증가 억제). 셀 문자열을 CSV와 동일하게 유지하기 위해
+# 전 컬럼 문자열·빈칸 처리 후 기록 → sync/streamlit 의 읽기 동작이 기존 CSV와 동일.
+result.fillna("").astype(str).to_parquet(MASTER_PATH, index=False)
 print(f"통합 RD 완료: +{len(new_df)}행 반영 -> 총 {len(result)}행 ({MASTER_PATH})")

@@ -1,20 +1,22 @@
 # -*- coding: utf-8 -*-
-import os, sys, csv, json
+import os, sys, json
+import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 
 SPREADSHEET_ID = os.environ["SPREADSHEET_ID"]
 GCP_SA_JSON = os.environ["GCP_SERVICE_ACCOUNT_JSON"]
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-CSV_PATH = os.path.join(DATA_DIR, "통합RD_마스터.csv")
+MASTER_PARQUET = os.path.join(DATA_DIR, "통합RD_마스터.parquet")
+MASTER_CSV_OLD = os.path.join(DATA_DIR, "통합RD_마스터.csv")   # 전환기 폴백
 SHEET_NAME = "통합RD_원본"
 # 시트에는 이 날짜(포함) 이후 데이터만 올린다. 그 이전은 시트에서 제외.
 # (다른 팀이 2026-04 이후 데이터만 수식으로 참조하므로 이전 데이터는 시트에 둘 필요 없음.
-#  Streamlit 대시보드는 이 시트가 아니라 통합RD_마스터.csv 전체를 읽으므로 영향 없음.)
+#  Streamlit 대시보드는 이 시트가 아니라 통합RD_마스터.parquet 전체를 읽으므로 영향 없음.)
 SHEET_SINCE = os.environ.get("SHEET_SINCE", "2026-04-01").strip()
 
-if not os.path.exists(CSV_PATH):
-    print("CSV 없음 -> 스킵")
+if not (os.path.exists(MASTER_PARQUET) or os.path.exists(MASTER_CSV_OLD)):
+    print("마스터 파일 없음 -> 스킵")
     sys.exit(0)
 
 creds_info = json.loads(GCP_SA_JSON)
@@ -27,10 +29,16 @@ try:
 except gspread.WorksheetNotFound:
     sheet = spreadsheet.add_worksheet(title=SHEET_NAME, rows=10000, cols=30)
 
-with open(CSV_PATH, encoding="utf-8-sig") as f:
-    rows = list(csv.reader(f))
+# 마스터(Parquet)를 문자열로 읽어 시트 업로드용 2차원 리스트로 변환.
+# (전 컬럼 문자열·빈칸 처리 → 기존 CSV 업로드와 동일한 셀 값. USER_ENTERED가 숫자·날짜 파싱)
+if os.path.exists(MASTER_PARQUET):
+    df = pd.read_parquet(MASTER_PARQUET)
+else:
+    df = pd.read_csv(MASTER_CSV_OLD, encoding="utf-8-sig", dtype=str)
+df = df.fillna("").astype(str)
+rows = [df.columns.tolist()] + df.values.tolist()
 
-if not rows:
+if len(rows) <= 1:
     print("데이터 없음 -> 스킵")
     sys.exit(0)
 

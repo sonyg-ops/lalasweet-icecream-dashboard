@@ -818,8 +818,13 @@ def load_data() -> pd.DataFrame:
     # (구글시트 get_all_records는 8.6만 행에서 dict를 통째로 만들어 메모리·시간을 크게 잡아먹어
     #  무료 서버 콜드스타트에 앱이 강제종료될 수 있음. CSV 읽기(C파서)가 훨씬 가볍고 빠름.
     #  마스터 CSV는 수집 워크플로우가 매번 저장소에 갱신·커밋하므로 시트와 동일한 최신 데이터.)
-    _csv = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "통합RD_마스터.csv")
-    df = pd.read_csv(_csv, encoding="utf-8-sig", dtype=str).fillna("")
+    _dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    _pq  = os.path.join(_dir, "통합RD_마스터.parquet")
+    _csv = os.path.join(_dir, "통합RD_마스터.csv")
+    if os.path.exists(_pq):                      # Parquet: 용량↓·읽기속도↑ (전 컬럼 문자열로 저장됨)
+        df = pd.read_parquet(_pq).fillna("")
+    else:                                        # 전환기 폴백: 구 CSV 마스터
+        df = pd.read_csv(_csv, encoding="utf-8-sig", dtype=str).fillna("")
     df["날짜"] = pd.to_datetime(df["날짜"], errors="coerce")
     for col in ["광고비 (KRW)", "노출", "클릭", "전환수", "CTR (%)", "CPA (KRW)",
                 "CPC (KRW)", "영상조회 3초+", "ThruPlay", "결과당비용"]:
