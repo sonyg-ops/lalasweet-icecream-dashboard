@@ -951,3 +951,4 @@
 [2026-07-24 13:17:48] spend > 0 행: 40개
 [2026-07-24 13:17:48] [백필 모드] state 파일 갱신 생략
 [2026-07-24 13:17:48] 완료: 40행 -> /home/runner/work/lalasweet-icecream-dashboard/lalasweet-icecream-dashboard/data/tiktok_raw_2026-07-24_2026-07-24.csv
+[2026-07-24 13:31:04] 받을 새 데이터 없음 (이미 2026-07-23까지 수집 완료) -> 종료
