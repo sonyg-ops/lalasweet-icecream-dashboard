@@ -37,6 +37,8 @@ RD_COLUMNS = [
     #  · 메타 = 인스타 영구링크(ig_links.csv) / 틱톡 = 미리보기 링크(tiktok_links.csv, 임시)
     #  · 유튜브 = watch 영구링크(google_raw 유래, youtube_links.csv 누적)
     "소재링크",
+    # 전환율 — 전환수 ÷ 클릭 × 100 (인지광고는 공란). 다른 팀 수식이 밀리지 않도록 맨 오른쪽에 둔다.
+    "CVR (%)",
 ]
 
 # 틱톡·유튜브 링크는 이 날짜부터 집행된 소재만 연결한다 (메타는 전 기간).
@@ -351,6 +353,15 @@ m_tt = (_media == "TikTok") & (_date >= LINK_SINCE)
 result.loc[m_tt, "소재링크"] = _name[m_tt].map(tt_map).fillna("")
 result.loc[(_media == "TikTok") & (_date < LINK_SINCE), "소재링크"] = ""
 print(f"틱톡 미리보기링크 매핑: {len(tt_map)}개 소재")
+
+# ── CVR (%) 계산 ─────────────────────────────────────────────
+# 전환수 ÷ 클릭 × 100 (대시보드 CVR과 같은 정의).
+# 인지광고는 자사몰 구매링크가 없어 전환 개념이 없으므로 공란 — CPA 열과 동일 규칙.
+# 전 행을 다시 계산하므로, 이 열이 없던 시절의 과거 마스터 행도 소급해서 채워진다.
+_clk = pd.to_numeric(result["클릭"],   errors="coerce").fillna(0)
+_cnv = pd.to_numeric(result["전환수"], errors="coerce").fillna(0)
+result["CVR (%)"] = (_cnv / _clk.where(_clk > 0) * 100).round(4).fillna(0).astype(object)
+result.loc[result["광고목적"].astype(str).str.strip() == "인지", "CVR (%)"] = ""
 
 # 컬럼 누락 방지 + 순서 고정
 for c in RD_COLUMNS:
