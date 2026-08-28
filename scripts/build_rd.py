@@ -143,6 +143,31 @@ def _norm_key(s) -> str:
     구글애즈가 특수문자를 공백으로 바꿔도, 정상 이름과 글자만 같으면 동일 키가 된다."""
     return re.sub(r"[\[\]_.\s]", "", str(s))
 
+# 틱톡이 자동 생성하는 광고명 앞머리 = 업로드한 영상 '파일명'({원본이름}_{랜덤8자}.mp4).
+# 그 뒤에 실제 광고 이름이 '_'로 붙어 소재명이 두 번 겹쳐 보인다.
+#   예) 'xcvijy_TySpdgnO.mp4_xcvijy'  /  '[26.06]F_V_JD멜_..._이수현_fA5aYhzs.mp4_[26.06]F_V_JD멜_...'
+# 그대로 두면 표시가 지저분할 뿐 아니라 뒤쪽 분류(PD/디자이너)가 오염되고 소재링크 매칭도 어긋난다.
+TIKTOK_FILENAME_RE = re.compile(r"^(.+?)_[A-Za-z0-9]{8}\.mp4_.+$")
+
+def strip_tiktok_filename(name: str) -> str:
+    """틱톡 자동생성 광고명에서 앞의 '파일명' 조각만 남기고 뒤에 덧붙은 중복을 떼어낸다."""
+    m = TIKTOK_FILENAME_RE.match(str(name))
+    return m.group(1) if m else str(name)
+
+def fix_tiktok_names(df: pd.DataFrame) -> int:
+    """틱톡 자동생성 광고명 정리 + 그 행의 분류 17열 재파싱.
+    마스터 전체(과거+신규)에 적용하므로 이미 쌓인 과거 행도 함께 정리된다.
+    ※ 중복 제거(drop_duplicates) 뒤에 실행할 것 — 정리 후 이름이 같아지는
+      서로 다른 광고(같은 영상, 다른 광고)가 있어 먼저 하면 행이 사라진다."""
+    tt = df["매체"].astype(str) == "TikTok"
+    hit = tt & df["소재명"].astype(str).str.match(TIKTOK_FILENAME_RE).fillna(False)
+    for i in df.index[hit]:
+        new = strip_tiktok_filename(df.at[i, "소재명"])
+        df.at[i, "소재명"] = new
+        for c, v in parse_ad_name(new).items():
+            df.at[i, c] = v
+    return int(hit.sum())
+
 def fill_youtube_from_clean(df: pd.DataFrame) -> int:
     """구글애즈(유튜브)가 소재명의 특수문자를 공백으로 바꿔 보고해
     _parse_spaced_name 만으로는 뒤쪽 분류 열이 비는 경우를 보정한다.
@@ -299,6 +324,11 @@ if not master.empty:
 
 result = pd.concat([master, new_df], ignore_index=True)
 result = result.sort_values("날짜", kind="stable").reset_index(drop=True)
+
+# 틱톡 자동생성 광고명 정리: 전체(과거+신규)에 적용 → 과거 행도 다음 수집 때 자동 정리
+n_tt = fix_tiktok_names(result)
+if n_tt:
+    print(f"틱톡 자동생성 소재명 정리: {n_tt}행")
 
 # 유튜브 공백형 소재명 분류 복구: 전체(과거+신규)에 적용 → 다음 수집 때 과거 행도 자동 정리
 n_fixed = fill_youtube_from_clean(result)
