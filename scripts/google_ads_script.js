@@ -151,16 +151,26 @@ function writeToSheet(newRows, newDates) {
   var sheet = ss.getSheetByName(TAB_NAME) || ss.insertSheet(TAB_NAME);
 
   // 이번에 다시 수집한 날짜의 기존 행은 지우고 최신본으로 교체 (재실행해도 중복 안 쌓임)
+  // ※ 시트가 'YYYY-MM-DD' 를 날짜값으로 바꿔 저장하면 getValues()는 Date 객체를 돌려준다.
+  //   String(Date) 는 'Sun Aug 31 2026 00:00:00 GMT+0900' 이라 newDates 키('2026-08-31')와
+  //   절대 안 맞고, 그러면 기존 행이 안 지워져 재실행마다 중복 행이 쌓인다. → 문자열로 정규화.
+  var tz = ss.getSpreadsheetTimeZone();
   var keep = [];
   var data = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {            // 0행 = 헤더
-    var d = String(data[i][0]);
+    var d = toYmd(data[i][0], tz);
     if (d && !newDates[d]) keep.push(data[i]);
   }
 
   var all = [HEADER].concat(keep).concat(newRows);
   sheet.clearContents();
   sheet.getRange(1, 1, all.length, HEADER.length).setValues(all);
+}
+
+// 시트의 날짜 셀(문자열 또는 Date) → 'YYYY-MM-DD' 문자열
+function toYmd(v, tz) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+  return String(v == null ? '' : v).trim();
 }
 
 // ===== 소재명 파싱 (build_rd.py 의 parse_ad_name 과 동일 규칙) =====
@@ -215,9 +225,12 @@ function parseSpacedName(adName, r) {
 }
 
 // ===== 빙과만 남기기 (scripts/meta_api.py 의 is_bingwa 와 동일 규칙) =====
+// ※ 한 곳만 다름: 메타/틱톡 캠페인명은 '[빙과_복쫀바]' 처럼 '빙과'가 붙어 그대로 걸리지만,
+//   구글애즈 캠페인명은 '[복쫀바] 인지광고_...' 처럼 '빙과'가 없다. 그래서 '쫀득바' 대신
+//   '쫀' 으로 둬서 쫀득바·복쫀바를 모두 잡는다. (사장님 규칙: 캠페인명에 '파인트'·'쫀')
 var BINGWA_CAMPAIGN_KW = ['빙과','파인트','스틱바','얼리썸머','패밀리세일','듬뿍바','딸기축제',
-  '망요바','모나카','미니생초코','쫀득바','초코페스티벌','멜론바','젤라또','요거트바','복요파','블요바','제로바'];
-var BINGWA_AD_CODES = ['BA망','CO바','P혼','ZB귤','ZB파','제로바','BA딸','BA옥','BA혼','JD망','JD멜','MB바','M우','M팥'];
+  '망요바','모나카','미니생초코','쫀','초코페스티벌','멜론바','젤라또','요거트바','복요파','블요바','제로바'];
+var BINGWA_AD_CODES = ['BA망','CO바','P혼','ZB귤','ZB파','제로바','BA딸','BA옥','BA혼','JD망','JD멜','JD복','MB바','M우','M팥'];   // JD=쫀득 계열(멜·망·복)
 var BINGWA_PRODUCT_CODES = ['P혼','P망','P요','P복','P바','P초','P말','P오','P우','P치','P애','P고'];
 
 function productCode(adName) {
