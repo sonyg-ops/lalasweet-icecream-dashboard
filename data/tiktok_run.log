@@ -1703,3 +1703,8 @@
 [2026-09-12 23:52:11] spend > 0 행: 75개
 [2026-09-12 23:52:11] 마지막 성공 날짜 갱신: 2026-09-12
 [2026-09-12 23:52:11] 완료: 75행 -> /home/runner/work/lalasweet-icecream-dashboard/lalasweet-icecream-dashboard/data/tiktok_raw_2026-09-12_2026-09-12.csv
+[2026-09-13 23:57:48] 수집 범위: 2026-09-13 ~ 2026-09-13 (1일)
+[2026-09-13 23:57:50]   2026-09-13: 전체 276행 -> 빙과 154행
+[2026-09-13 23:57:50] spend > 0 행: 71개
+[2026-09-13 23:57:50] 마지막 성공 날짜 갱신: 2026-09-13
+[2026-09-13 23:57:50] 완료: 71행 -> /home/runner/work/lalasweet-icecream-dashboard/lalasweet-icecream-dashboard/data/tiktok_raw_2026-09-13_2026-09-13.csv
