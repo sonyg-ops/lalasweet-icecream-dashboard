@@ -117,7 +117,7 @@ PRODUCT_GROUPS = {
     "미니생초코 (바닐라)": ["MB바"],
     "옥수수 듬뿍바": ["BA옥"],
     "듬뿍바":   ["DB딸", "DB키", "DB피", "DB혼", "DB베"],
-    "쫀득바":   ["JD멜", "JD망"],
+    "쫀득바":   ["JD멜", "JD망", "JD혼", "JD복"],
     "스틱바종류 전체 혼합": ["스혼"],
 }
 PRODUCT_GROUP = {code: grp for grp, codes in PRODUCT_GROUPS.items() for code in codes}
