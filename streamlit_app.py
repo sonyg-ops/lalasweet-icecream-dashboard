@@ -881,6 +881,12 @@ def load_data() -> pd.DataFrame:
         # (팝콘/멜론바 묶음딜 등 빙과 캠페인에 섞여 수집된 소재라 캠페인명 매칭으로 딸려 들어옴)
         df = df[~df["제품코드"].str.startswith("PC")]
         df["제품군"] = df["제품코드"].map(PRODUCT_GROUP).fillna("(기타)")
+        # 인플루언서 영상 소재는 소재명(파일명)에 제품코드가 없어 (기타)로 빠진다.
+        # 캠페인명에 제품군이 드러나 있으면(예: [쫀득바], [복쫀바]) 그걸로 보완.
+        if "캠페인명" in df.columns:
+            _etc = df["제품군"] == "(기타)"
+            _jdongdeuk = df["캠페인명"].astype(str).str.contains("쫀득|쫀바", regex=True, na=False)
+            df.loc[_etc & _jdongdeuk, "제품군"] = "쫀득바"
     # 광고목적: 없거나 빈 값(과거 데이터·틱톡 등)은 전환으로 간주
     if "광고목적" in df.columns:
         df["광고목적"] = (df["광고목적"].astype(str).str.strip()
