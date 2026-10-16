@@ -350,7 +350,7 @@ BINGWA_AD_CODES = [
 # 파인트면 빙과로 수집한다. (P말 등이 파인트 안 붙은 캠페인에서 돌아도 누락 안 되도록)
 # 목록은 streamlit_app.py 의 PRODUCT_GROUPS["파인트"] 와 동일하게 유지.
 BINGWA_PRODUCT_CODES = [
-    "P혼", "P망", "P요", "P복", "P바", "P초", "P말", "P오", "P우", "P치", "P애", "P고",
+    "P혼", "P망", "P요", "P복", "P바", "P초", "P말", "P오", "P우", "P치", "P애", "P고", "P바치",
 ]
 
 def _product_code(ad_name: str) -> str:
