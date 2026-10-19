@@ -231,7 +231,7 @@ function parseSpacedName(adName, r) {
 var BINGWA_CAMPAIGN_KW = ['빙과','파인트','스틱바','얼리썸머','패밀리세일','듬뿍바','딸기축제',
   '망요바','모나카','미니생초코','쫀','초코페스티벌','멜론바','젤라또','요거트바','복요파','블요바','제로바'];
 var BINGWA_AD_CODES = ['BA망','CO바','P혼','ZB귤','ZB파','제로바','BA딸','BA옥','BA혼','JD망','JD멜','JD복','MB바','M우','M팥'];   // JD=쫀득 계열(멜·망·복)
-var BINGWA_PRODUCT_CODES = ['P혼','P망','P요','P복','P바','P초','P말','P오','P우','P치','P애','P고'];
+var BINGWA_PRODUCT_CODES = ['P혼','P망','P요','P복','P바','P바치','P초','P말','P오','P우','P치','P애','P고'];
 
 function productCode(adName) {
   if (!adName || adName.charAt(0) !== '[') return '';
